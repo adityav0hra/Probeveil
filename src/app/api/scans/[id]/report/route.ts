@@ -58,7 +58,7 @@ export async function GET(
       ),
       {
         headers: {
-          "content-disposition": `attachment; filename=webguard-${id}.json`,
+          "content-disposition": `attachment; filename=probeveil-${id}.json`,
           "content-type": "application/json",
         },
       },
@@ -68,7 +68,7 @@ export async function GET(
   if (format === "csv") {
     return new NextResponse(csvExport(reportScan), {
       headers: {
-        "content-disposition": `attachment; filename=webguard-${id}-findings.csv`,
+        "content-disposition": `attachment; filename=probeveil-${id}-findings.csv`,
         "content-type": "text/csv; charset=utf-8",
       },
     });
@@ -77,7 +77,7 @@ export async function GET(
   if (format === "sarif") {
     return new NextResponse(JSON.stringify(sarifExport(reportScan), null, 2), {
       headers: {
-        "content-disposition": `attachment; filename=webguard-${id}.sarif`,
+        "content-disposition": `attachment; filename=probeveil-${id}.sarif`,
         "content-type": "application/sarif+json",
       },
     });
@@ -140,15 +140,15 @@ export async function GET(
       headers: {
         "content-disposition": contentDisposition(filename),
         "content-type": "application/pdf",
-        "x-webguard-report-filename": filename,
-        "x-webguard-report-template-version": REPORT_TEMPLATE_VERSION,
+        "x-probeveil-report-filename": filename,
+        "x-probeveil-report-template-version": REPORT_TEMPLATE_VERSION,
       },
     });
   }
 
   return new NextResponse(htmlReport(reportScan), {
     headers: {
-      "content-disposition": `attachment; filename=webguard-${id}.html`,
+      "content-disposition": `attachment; filename=probeveil-${id}.html`,
       "content-type": "text/html; charset=utf-8",
     },
   });
@@ -216,7 +216,7 @@ function sarifExport(scan: ReportScanData) {
         })),
         tool: {
           driver: {
-            informationUri: "https://example.com/webguard",
+            informationUri: "https://example.com/probeveil",
             name: getReportProductName(),
             rules: scan.findings.map((finding) => ({
               id: finding.scannerRuleId ?? finding.category,

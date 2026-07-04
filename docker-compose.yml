@@ -1,15 +1,15 @@
-name: webguard
+name: probeveil
 services:
   postgres:
     image: postgres:17.5-alpine3.21
     environment:
-      POSTGRES_USER: webguard
-      POSTGRES_PASSWORD: webguard
-      POSTGRES_DB: webguard
+      POSTGRES_USER: probeveil
+      POSTGRES_PASSWORD: probeveil
+      POSTGRES_DB: probeveil
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U webguard"]
+      test: ["CMD-SHELL", "pg_isready -U probeveil"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -44,7 +44,7 @@ services:
     build: { context: ., target: web }
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://webguard:webguard@postgres:5432/webguard?schema=public
+      DATABASE_URL: postgresql://probeveil:probeveil@postgres:5432/probeveil?schema=public
       REDIS_URL: redis://redis:6379
     depends_on:
       migrate: { condition: service_completed_successfully }

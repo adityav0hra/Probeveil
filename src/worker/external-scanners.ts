@@ -39,7 +39,7 @@ export async function runExternalScanners({
   job: ScanJob;
 }) {
   if (job.mode === "QUICK") return [];
-  const enabled = process.env.WEBGUARD_EXTERNAL_SCANNERS ?? "auto";
+  const enabled = process.env.PROBEVEIL_EXTERNAL_SCANNERS ?? "auto";
   if (enabled === "off" || enabled === "false" || enabled === "0") return [];
 
   const findings: FindingInput[] = [];
@@ -173,7 +173,7 @@ function nucleiFinding(row: NucleiJson): FindingInput {
     reproductionSteps: [
       `Run nuclei against ${affectedUrl}.`,
       `Review template ${scannerRuleId} and confirm whether the matched component is reachable in the deployed environment.`,
-      "Apply remediation and rerun WebGuard to confirm the finding is no longer detected.",
+      "Apply remediation and rerun Probeveil to confirm the finding is no longer detected.",
     ],
     scannerName: "Nuclei",
     scannerRuleId,

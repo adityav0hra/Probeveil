@@ -6,7 +6,7 @@ export function Logo() {
         <ShieldCheck size={19} />
       </span>
       <div>
-        <div className="font-semibold tracking-tight text-white">WebGuard</div>
+        <div className="font-semibold tracking-tight text-white">Probeveil</div>
         <div className="text-[10px] uppercase tracking-[.18em] text-slate-600">
           Scan Console
         </div>

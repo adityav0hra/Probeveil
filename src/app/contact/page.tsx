@@ -9,15 +9,15 @@ export default function ContactPage() {
       <header className="mx-auto flex max-w-7xl items-center justify-between px-5 py-5 lg:px-8">
         <Link href="/" className="flex items-center gap-3">
           <Image
-            alt="WebGuard"
+            alt="Probeveil"
             className="size-10 rounded-lg border border-signal/25 bg-signal/10"
             height={40}
-            src="/webguard-icon.png"
+            src="/probeveil-icon.png"
             width={40}
           />
           <div>
             <div className="font-semibold tracking-tight text-white">
-              WebGuard
+              Probeveil
             </div>
             <div className="text-[10px] uppercase tracking-[.18em] text-slate-600">
               Website security
@@ -41,7 +41,7 @@ export default function ContactPage() {
           </Link>
           <p className="eyebrow mt-10">Public contact</p>
           <h1 className="mt-3 text-4xl font-semibold tracking-tight text-white">
-            Contact WebGuard
+            Contact Probeveil
           </h1>
           <p className="mt-4 max-w-md text-sm leading-7 text-slate-400">
             Use this form for product enquiries, security review requests, demo

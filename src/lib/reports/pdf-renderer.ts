@@ -432,7 +432,7 @@ export function renderSecurityReportPdf(
     doc.y += 16;
     doc.callout(
       "Delivery note",
-      "This report is generated from persisted WebGuard scan data. It is intended for executive review, technical security review, client delivery, remediation planning and long-term record keeping.",
+      "This report is generated from persisted Probeveil scan data. It is intended for executive review, technical security review, client delivery, remediation planning and long-term record keeping.",
     );
     doc.text(`Template ${REPORT_TEMPLATE_VERSION}`, margin, height - 54, {
       color: slate,

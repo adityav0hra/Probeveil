@@ -21,7 +21,7 @@ export type ContactFormState = {
 };
 
 const successMessage =
-  "Thanks. Your enquiry has been received by the WebGuard team.";
+  "Thanks. Your enquiry has been received by the Probeveil team.";
 
 function getValue(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -48,7 +48,7 @@ function hashValue(value: string) {
   const salt =
     process.env.CONTACT_HASH_SECRET ??
     process.env.AUTH_SECRET ??
-    "webguard-development-contact-salt";
+    "probeveil-development-contact-salt";
   return createHash("sha256").update(`${salt}:${value}`).digest("hex");
 }
 

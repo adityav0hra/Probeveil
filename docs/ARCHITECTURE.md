@@ -1,8 +1,8 @@
-# WebGuard architecture
+# Probeveil architecture
 
 ## Summary
 
-WebGuard is a Next.js control plane backed by PostgreSQL. Auth.js provides admin authentication and server-side role checks. Scan requests are validated and persisted before a minimal job envelope is sent to Redis/BullMQ. A separately built, non-root worker performs bounded passive network checks and reports signed events to a private internal API; it never receives database credentials. Results and immutable evidence metadata are persisted by the control plane. The UI polls a compact scan projection for live progress.
+Probeveil is a Next.js control plane backed by PostgreSQL. Auth.js provides admin authentication and server-side role checks. Scan requests are validated and persisted before a minimal job envelope is sent to Redis/BullMQ. A separately built, non-root worker performs bounded passive network checks and reports signed events to a private internal API; it never receives database credentials. Results and immutable evidence metadata are persisted by the control plane. The UI polls a compact scan projection for live progress.
 
 Phase 1 implements real availability, redirect, DNS, TLS, header, cookie, CSP, CORS, robots/sitemap discovery and bounded same-origin crawling. Deeper active tooling belongs to the documented later worker images and is never represented as completed until it really ran.
 

@@ -1,6 +1,6 @@
-# WebGuard
+# Probeveil
 
-WebGuard is a production-oriented security scan control plane for approved web targets. Phase 1 persists real scans, queues isolated passive workers, performs genuine DNS/HTTP/TLS/header/cookie/CSP/CORS and bounded crawl checks, stores evidence with integrity hashes, streams progress and exports JSON/HTML reports.
+Probeveil is a production-oriented security scan control plane for approved web targets. Phase 1 persists real scans, queues isolated passive workers, performs genuine DNS/HTTP/TLS/header/cookie/CSP/CORS and bounded crawl checks, stores evidence with integrity hashes, streams progress and exports JSON/HTML reports.
 
 ## Local development
 

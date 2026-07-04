@@ -30,7 +30,7 @@ const capabilityCards = [
   },
   {
     title: "Advanced scanner orchestration",
-    body: "Coordinates WebGuard passive checks with external engines such as Nuclei, then normalizes results into one clean admin workflow.",
+    body: "Coordinates Probeveil passive checks with external engines such as Nuclei, then normalizes results into one clean admin workflow.",
     icon: TerminalSquare,
     accent: "text-amber-300",
   },
@@ -66,15 +66,15 @@ export default async function HomePage() {
       <header className="mx-auto flex max-w-7xl items-center justify-between px-5 py-5 lg:px-8">
         <Link href="/" className="flex items-center gap-3">
           <Image
-            alt="WebGuard"
+            alt="Probeveil"
             className="size-10 rounded-lg border border-signal/25 bg-signal/10"
             height={40}
-            src="/webguard-icon.png"
+            src="/probeveil-icon.png"
             width={40}
           />
           <div>
             <div className="font-semibold tracking-tight text-white">
-              WebGuard
+              Probeveil
             </div>
             <div className="text-[10px] uppercase tracking-[.18em] text-slate-600">
               Website security
@@ -103,15 +103,15 @@ export default async function HomePage() {
             alt=""
             className="size-[460px]"
             height={460}
-            src="/webguard-icon.png"
+            src="/probeveil-icon.png"
             width={460}
           />
         </div>
 
         <div className="max-w-4xl">
-          <p className="eyebrow">WebGuard security platform</p>
+          <p className="eyebrow">Probeveil security platform</p>
           <h1 className="mt-5 max-w-3xl text-5xl font-semibold leading-[1.03] tracking-tight text-white sm:text-6xl lg:text-7xl">
-            WebGuard
+            Probeveil
           </h1>
           <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-300">
             Website security scanning with deep route discovery, evidence-rich
@@ -216,7 +216,7 @@ export default async function HomePage() {
             lives.
           </h2>
           <p className="mt-4 text-sm leading-7 text-slate-400">
-            WebGuard keeps scanning, evidence, reports, scanner health and audit
+            Probeveil keeps scanning, evidence, reports, scanner health and audit
             logs inside the signed-in dashboard while this landing page gives
             the product a clean front door.
           </p>
@@ -255,7 +255,7 @@ export default async function HomePage() {
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3 text-sm text-slate-500">
             <Radar size={16} className="text-signal" />
-            WebGuard website security scanning
+            Probeveil website security scanning
           </div>
           <div className="flex flex-wrap gap-2">
             <Link className="button-secondary" href="/contact">

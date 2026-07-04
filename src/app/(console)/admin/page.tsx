@@ -71,7 +71,7 @@ export default async function AdminDashboardPage() {
           <div className="px-5 py-16 text-center">
             <p className="text-slate-300">No scans yet</p>
             <p className="muted mt-2">
-              Start with a URL and WebGuard handles the rest.
+              Start with a URL and Probeveil handles the rest.
             </p>
           </div>
         ) : (

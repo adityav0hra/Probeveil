@@ -14,7 +14,7 @@ export default async function AttackPathsPage() {
       <h1 className="mt-2 text-3xl font-semibold">Attack paths</h1>
       <p className="muted mt-2 max-w-3xl">
         Attack paths are evidence-backed chains that show how one weakness can
-        connect to another and create a larger security impact. WebGuard only
+        connect to another and create a larger security impact. Probeveil only
         shows a path when stored findings support the relationship.
       </p>
       <div className="mt-8 space-y-4">
@@ -40,7 +40,7 @@ export default async function AttackPathsPage() {
               No evidence-backed attack paths yet
             </p>
             <p className="muted mt-2">
-              WebGuard leaves this empty when the evidence is not strong enough
+              Probeveil leaves this empty when the evidence is not strong enough
               to connect multiple findings into a chain.
             </p>
           </div>

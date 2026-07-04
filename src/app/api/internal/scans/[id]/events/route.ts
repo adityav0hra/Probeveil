@@ -250,7 +250,7 @@ export async function POST(
         create: {
           scanId: id,
           ...data,
-          scannerName: data.scannerName ?? "WebGuard Passive",
+          scannerName: data.scannerName ?? "Probeveil Passive",
           scannerVersion: data.scannerVersion ?? "1.0.0",
           reproductionSteps,
           references,

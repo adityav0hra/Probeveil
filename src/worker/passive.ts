@@ -366,11 +366,11 @@ export async function runPassive(
   });
   await stage(emit, "cors", async () => {
     const cors = await safeFetch(new URL(finalUrl), new URL(finalUrl), {
-      headers: { Origin: "https://webguard.invalid" },
+      headers: { Origin: "https://probeveil.invalid" },
     });
     const allowOrigin = cors.headers["access-control-allow-origin"];
     if (
-      allowOrigin === "https://webguard.invalid" &&
+      allowOrigin === "https://probeveil.invalid" &&
       cors.headers["access-control-allow-credentials"]?.toLowerCase() === "true"
     )
       findings.push(
@@ -521,7 +521,7 @@ export async function runPassive(
       if (!isSameOriginOrSubdomain(candidate.url, root)) continue;
       try {
         const page = await safeFetch(candidate.url, root, {
-          headers: { "x-webguard-discovery": candidate.source },
+          headers: { "x-probeveil-discovery": candidate.source },
         });
         const discovered = endpoint(
           page.url,
@@ -979,7 +979,7 @@ async function differentialProbe(
       url,
       init: {
         headers: {
-          "x-forwarded-host": "webguard.invalid",
+          "x-forwarded-host": "probeveil.invalid",
           "x-forwarded-proto": "https",
           "x-original-url": url.pathname,
         },
@@ -987,7 +987,7 @@ async function differentialProbe(
     },
     {
       label: "cache-buster",
-      url: withParam(url, "__webguard_probe", "1"),
+      url: withParam(url, "__probeveil_probe", "1"),
       init: { headers: { "cache-control": "no-cache" } },
     },
     { label: "case-variant", url: caseVariant(url) },
@@ -1183,13 +1183,13 @@ async function graphqlProbe(url: URL, root: URL): Promise<ProbeObservation[]> {
   const probes: Array<{ label: string; body: string }> = [
     {
       label: "graphql-typename",
-      body: JSON.stringify({ query: "query WebGuardTypeName { __typename }" }),
+      body: JSON.stringify({ query: "query ProbeveilTypeName { __typename }" }),
     },
     {
       label: "graphql-introspection-type",
       body: JSON.stringify({
         query:
-          "query WebGuardSchemaProbe { __schema { queryType { name } mutationType { name } } }",
+          "query ProbeveilSchemaProbe { __schema { queryType { name } mutationType { name } } }",
       }),
     },
   ];
@@ -1284,7 +1284,7 @@ async function safeFetch(
       redirect: "manual",
       signal: AbortSignal.timeout(TIMEOUT),
       headers: {
-        "user-agent": "WebGuard/1.0 security scan",
+        "user-agent": "Probeveil/1.0 security scan",
         accept:
           "text/html,application/xhtml+xml,application/json;q=.8,*/*;q=.2",
         ...fetchInit.headers,
@@ -1426,7 +1426,7 @@ function finding(
   const description = [
     `${title} was observed on ${affectedUrl} during the passive scan.`,
     guidance.context,
-    `WebGuard assigned ${severity.toLowerCase()} severity with ${confidence.toLowerCase().replaceAll("_", " ")} confidence from response-level evidence. Treat this as an evidence-backed lead: validate whether the affected response handles authentication, sensitive data, privileged actions or security-critical workflows before deciding final risk.`,
+    `Probeveil assigned ${severity.toLowerCase()} severity with ${confidence.toLowerCase().replaceAll("_", " ")} confidence from response-level evidence. Treat this as an evidence-backed lead: validate whether the affected response handles authentication, sensitive data, privileged actions or security-critical workflows before deciding final risk.`,
   ].join(" ");
 
   return {

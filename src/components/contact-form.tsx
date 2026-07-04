@@ -61,7 +61,7 @@ export function ContactForm() {
       />
 
       <div className="border-b border-line pb-5">
-        <p className="eyebrow">Contact WebGuard</p>
+        <p className="eyebrow">Contact Probeveil</p>
         <h1 className="mt-2 text-2xl font-semibold tracking-tight">
           Talk to us
         </h1>
@@ -200,7 +200,7 @@ export function ContactForm() {
           required
           type="checkbox"
         />
-        I agree that WebGuard may process this enquiry and contact me about it.
+        I agree that Probeveil may process this enquiry and contact me about it.
       </label>
       <FieldError errors={state.errors?.consent} />
 

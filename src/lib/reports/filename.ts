@@ -49,7 +49,7 @@ export function buildReportFilename({
     productName
       .replace(/[^a-z0-9]+/gi, "-")
       .replace(/-+/g, "-")
-      .replace(/^-|-$/g, "") || "WebGuard";
+      .replace(/^-|-$/g, "") || "Probeveil";
   const website = sanitiseWebsiteName(hostnameFromScanUrl(url));
   return `${product}-${website}-${reportKindConfig[kind].filenameLabel}-${reportDateStamp(completedAt)}.pdf`;
 }

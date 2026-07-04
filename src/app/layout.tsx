@@ -2,12 +2,12 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: { default: "WebGuard", template: "%s · WebGuard" },
+  title: { default: "Probeveil", template: "%s · Probeveil" },
   description: "Website security scan control plane",
   icons: {
-    apple: "/webguard-icon.png",
-    icon: "/webguard-icon.png",
-    shortcut: "/webguard-icon.png",
+    apple: "/probeveil-icon.png",
+    icon: "/probeveil-icon.png",
+    shortcut: "/probeveil-icon.png",
   },
 };
 

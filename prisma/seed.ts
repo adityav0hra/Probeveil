@@ -33,10 +33,10 @@ async function main() {
     });
   }
   await prisma.scannerTool.upsert({
-    where: { name: "WebGuard Passive" },
+    where: { name: "Probeveil Passive" },
     update: { enabled: true, version: "1.0.0" },
     create: {
-      name: "WebGuard Passive",
+      name: "Probeveil Passive",
       version: "1.0.0",
       kind: "PASSIVE_HTTP",
       capabilities: [
@@ -72,7 +72,7 @@ async function main() {
     create: {
       name: "Adaptive Differential Probes",
       version: "1.0.0",
-      kind: "WEBGUARD_ACTIVE_SAFE",
+      kind: "PROBEVEIL_ACTIVE_SAFE",
       capabilities: [
         "method comparison",
         "header variation",

@@ -6,7 +6,7 @@ const engineNotes: Record<string, string> = {
     "Compares safe request variants to surface authorization, routing and parameter-handling anomalies.",
   Nuclei:
     "Runs template-based HTTP checks when the nuclei CLI is installed on the worker.",
-  "WebGuard Passive":
+  "Probeveil Passive":
     "Built-in crawler and response analyzer for DNS, TLS, headers, cookies, CORS, CSP, routes and evidence.",
 };
 
@@ -18,7 +18,7 @@ export default async function ScannersPage() {
       <p className="eyebrow">System configuration</p>
       <h1 className="mt-2 text-3xl font-semibold">Scanner configuration</h1>
       <p className="muted mt-2">
-        Installed engines used by WebGuard during scan execution.
+        Installed engines used by Probeveil during scan execution.
       </p>
       <div className="mt-8 grid gap-4 lg:grid-cols-2">
         {tools.map((tool) => (

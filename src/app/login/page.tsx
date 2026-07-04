@@ -68,7 +68,7 @@ export default async function LoginPage({
               />
             </label>
             <button className="button mt-2 w-full" type="submit">
-              Sign in to WebGuard
+              Sign in to Probeveil
             </button>
           </form>
         </section>

@@ -26,7 +26,7 @@ function renderAdminEmail(enquiry: ContactEnquiry) {
     : "-";
   const adminUrl = `${getBaseUrl()}/contact-enquiries/${enquiry.id}`;
   return [
-    "New WebGuard contact enquiry",
+    "New Probeveil contact enquiry",
     "",
     `Sender: ${plain(enquiry.fullName)}`,
     `Email: ${plain(enquiry.email)}`,
@@ -48,12 +48,12 @@ function renderSenderEmail(enquiry: ContactEnquiry) {
   return [
     `Hi ${plain(enquiry.fullName)},`,
     "",
-    "We received your WebGuard enquiry.",
+    "We received your Probeveil enquiry.",
     `Enquiry type: ${enquiryTypeLabels[enquiry.enquiryType]}`,
     "",
     "Please do not send passwords, access tokens, private keys or other sensitive credentials by email.",
     "",
-    "WebGuard",
+    "Probeveil",
   ].join("\n");
 }
 
@@ -118,13 +118,13 @@ export async function sendContactEmails(enquiry: ContactEnquiry) {
 
   const adminResult = await sendEmail({
     to: adminTo,
-    subject: `WebGuard enquiry: ${enquiryTypeLabels[enquiry.enquiryType]}`,
+    subject: `Probeveil enquiry: ${enquiryTypeLabels[enquiry.enquiryType]}`,
     text: renderAdminEmail(enquiry),
   });
 
   const senderResult = await sendEmail({
     to: enquiry.email,
-    subject: "We received your WebGuard enquiry",
+    subject: "We received your Probeveil enquiry",
     text: renderSenderEmail(enquiry),
   });
 

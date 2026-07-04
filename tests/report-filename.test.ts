@@ -34,27 +34,27 @@ describe("report filename utilities", () => {
       buildReportFilename({
         completedAt: "2026-07-04T02:30:00.000Z",
         kind: "executive",
-        productName: "WebGuard",
+        productName: "Probeveil",
         url: "https://store.example.com/dashboard",
       }),
     ).toBe(
-      "WebGuard-store-example-com-Executive-Security-Report-2026-07-04.pdf",
+      "Probeveil-store-example-com-Executive-Security-Report-2026-07-04.pdf",
     );
     expect(
       buildReportFilename({
         completedAt: "2026-07-04T02:30:00.000Z",
         kind: "technical",
-        productName: "WebGuard",
+        productName: "Probeveil",
         url: "https://example.com",
       }),
     ).toBe(
-      "WebGuard-example-com-Full-Technical-Security-Report-2026-07-04.pdf",
+      "Probeveil-example-com-Full-Technical-Security-Report-2026-07-04.pdf",
     );
   });
 
   it("emits safe content disposition headers", () => {
     const header = contentDisposition(
-      "WebGuard-example-com-Executive-Security-Report-2026-07-04.pdf",
+      "Probeveil-example-com-Executive-Security-Report-2026-07-04.pdf",
     );
     expect(header).toContain("attachment;");
     expect(header).toContain("filename=");

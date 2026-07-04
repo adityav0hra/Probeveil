@@ -9,7 +9,7 @@ const publicPaths = new Set([
   "/contact",
   "/login",
   "/icon.png",
-  "/webguard-icon.png",
+  "/probeveil-icon.png",
 ]);
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
@@ -67,8 +67,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     sessionToken: {
       name:
         process.env.NODE_ENV === "production"
-          ? "__Secure-webguard.session-token"
-          : "webguard.session-token",
+          ? "__Secure-probeveil.session-token"
+          : "probeveil.session-token",
       options: {
         httpOnly: true,
         sameSite: "lax",

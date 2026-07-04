@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parseNucleiJsonLines } from "../src/worker/external-scanners";
 
 describe("external scanner adapters", () => {
-  it("converts nuclei JSONL findings into WebGuard findings", () => {
+  it("converts nuclei JSONL findings into Probeveil findings", () => {
     const findings = parseNucleiJsonLines(
       JSON.stringify({
         "matched-at": "https://example.com/.git/config",
