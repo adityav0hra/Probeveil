@@ -859,7 +859,12 @@ export async function runPassive(
     );
   });
   await stage(emit, "passive", async () => {
-    if (findings.length) await emit({ type: "findings", findings });
+    for (let index = 0; index < findings.length; index += 100) {
+      await emit({
+        type: "findings",
+        findings: findings.slice(index, index + 100),
+      });
+    }
   });
   await stage(emit, "correlate", async () => {
     await emit({ type: "endpoints", endpoints: dedupeEndpoints(endpoints) });

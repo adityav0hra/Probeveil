@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { ScanStatus } from "@prisma/client";
 import { requireRole } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -6,6 +6,9 @@ import { getScanQueue } from "@/lib/queue";
 import { PASSIVE_STAGES } from "@/lib/stages";
 import { createScanSchema, normalizeUrlInput, urlFingerprint } from "@/lib/url";
 import { signWorkerToken } from "@/lib/worker-token";
+
+export const maxDuration = 300;
+export const runtime = "nodejs";
 
 export async function GET() {
   await requireRole(["ADMIN", "AUDITOR"]);
@@ -132,6 +135,8 @@ export async function POST(request: Request) {
     }),
   ]);
 
+  schedulePassiveWorkerKick(request, scan.id, token);
+
   if (!isJson) {
     return NextResponse.redirect(
       new URL(`/scans/${scan.id}`, request.url),
@@ -140,6 +145,28 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json({ id: scan.id }, { status: 201 });
+}
+
+function schedulePassiveWorkerKick(request: Request, scanId: string, token: string) {
+  const url = new URL(`/api/internal/workers/passive/${scanId}`, request.url);
+  after(async () => {
+    try {
+      await fetch(url, {
+        cache: "no-store",
+        headers: { authorization: `Bearer ${token}` },
+        method: "POST",
+        signal: AbortSignal.timeout(300_000),
+      });
+    } catch (error) {
+      console.warn(
+        JSON.stringify({
+          error: error instanceof Error ? error.message : String(error),
+          scanId,
+          worker: "serverless-passive-kick",
+        }),
+      );
+    }
+  });
 }
 
 function scanErrorResponse(
