@@ -97,3 +97,5 @@ object-storage/
 .idea/
 .vscode/settings.json
 .vscode/launch.json
+.vercel
+.env*
