@@ -1,0 +1,86 @@
+name: webguard
+services:
+  postgres:
+    image: postgres:17.5-alpine3.21
+    environment:
+      POSTGRES_USER: webguard
+      POSTGRES_PASSWORD: webguard
+      POSTGRES_DB: webguard
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U webguard"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [control]
+    restart: unless-stopped
+
+  redis:
+    image: redis:8.0.1-alpine3.21
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [control]
+    restart: unless-stopped
+
+  migrate:
+    build: { context: ., target: deps }
+    command: ["sh", "-c", "npx prisma migrate deploy && npm run db:seed"]
+    env_file: .env
+    volumes:
+      - ./prisma:/app/prisma:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [control]
+    restart: "no"
+
+  web:
+    build: { context: ., target: web }
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://webguard:webguard@postgres:5432/webguard?schema=public
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    ports: ["127.0.0.1:3000:3000"]
+    networks: [control]
+    read_only: true
+    tmpfs: ["/tmp:size=64m,mode=1777"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    restart: unless-stopped
+
+  passive-worker:
+    build: { context: ., target: worker }
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379
+      INTERNAL_API_URL: http://web:3000
+      WORKER_CONCURRENCY: 2
+    depends_on:
+      web: { condition: service_started }
+      redis: { condition: service_healthy }
+    networks: [control, scan-egress]
+    read_only: true
+    tmpfs: ["/tmp:size=128m,mode=1777,noexec,nosuid"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 1.5
+    stop_grace_period: 15s
+    restart: unless-stopped
+
+networks:
+  control: { internal: true }
+  scan-egress: {}
+volumes:
+  postgres-data: {}
+  redis-data: {}

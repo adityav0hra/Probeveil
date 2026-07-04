@@ -1,0 +1,46 @@
+apiVersion: v1
+kind: Namespace
+metadata: { name: webguard }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: webguard-web, namespace: webguard }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: webguard-web } }
+  template:
+    metadata: { labels: { app: webguard-web } }
+    spec:
+      automountServiceAccountToken: false
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: web
+          image: webguard:1.0.0
+          ports: [{ containerPort: 3000 }]
+          envFrom: [{ secretRef: { name: webguard-secrets } }]
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ["ALL"] } }
+          resources: { requests: { cpu: 200m, memory: 256Mi }, limits: { cpu: "1", memory: 512Mi } }
+          readinessProbe: { httpGet: { path: /login, port: 3000 }, initialDelaySeconds: 5 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: webguard-passive-worker, namespace: webguard }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: webguard-passive-worker } }
+  template:
+    metadata: { labels: { app: webguard-passive-worker } }
+    spec:
+      automountServiceAccountToken: false
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: worker
+          image: webguard-worker:1.0.0
+          envFrom: [{ secretRef: { name: webguard-worker-secrets } }]
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ["ALL"] } }
+          resources: { requests: { cpu: 300m, memory: 256Mi }, limits: { cpu: "1500m", memory: 512Mi } }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: default-deny, namespace: webguard }
+spec: { podSelector: {}, policyTypes: [Ingress, Egress] }

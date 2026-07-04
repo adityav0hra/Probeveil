@@ -1,0 +1,98 @@
+# Dependencies and builds
+node_modules/
+.next/
+out/
+dist/
+build/
+coverage/
+.turbo/
+.cache/
+tsconfig.tsbuildinfo
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.local
+*.secret
+secrets/
+credentials/
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Operating system
+.DS_Store
+Thumbs.db
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+prisma/dev.db
+data/
+
+# Cryptographic material
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.der
+
+# Scanner and report outputs
+/reports/
+/evidence/
+/artifacts/
+/scan-artifacts/
+/scan-results/
+/scanner-output/
+/raw-output/
+/callbacks/
+/captures/
+/browser-traces/
+/screenshots/
+/recordings/
+/har/
+*.har
+*.trace
+*.pdf
+
+# Uploads and user data
+/uploads/
+/user-content/
+/contact-enquiries/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+*.backup
+*.swp
+*.swo
+
+# Testing output
+playwright-report/
+test-results/
+blob-report/
+allure-results/
+allure-report/
+
+# Docker and local volumes
+docker-data/
+volumes/
+postgres-data/
+redis-data/
+object-storage/
+
+# IDE-specific private settings
+.idea/
+.vscode/settings.json
+.vscode/launch.json

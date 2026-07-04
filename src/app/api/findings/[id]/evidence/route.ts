@@ -1,0 +1,3 @@
+import { requireRole } from "@/lib/auth";
+import { db } from "@/lib/db";
+export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) { await requireRole(["ADMIN", "AUDITOR"]); const { id } = await params; const finding = await db.finding.findUnique({ where: { id }, include: { evidence: true } }); if (!finding) return new Response("Not found", { status: 404 }); return new Response(JSON.stringify({ finding, exportedAt: new Date().toISOString() }, null, 2), { headers: { "content-type": "application/json", "content-disposition": `attachment; filename=finding-${id}-evidence.json` } }); }

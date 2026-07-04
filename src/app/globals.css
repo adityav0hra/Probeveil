@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: dark; }
+* { border-color: #222a36; }
+html { background: #07090d; }
+body { min-height: 100vh; background: radial-gradient(circle at 60% -20%, rgba(42,96,83,.18), transparent 38%), #07090d; color: #e8edf3; }
+::selection { background: rgba(124,248,196,.24); color: white; }
+@layer components {
+  .panel { @apply rounded-xl border border-line bg-panel/90 shadow-glow; }
+  .eyebrow { @apply text-[11px] font-semibold uppercase tracking-[.18em] text-slate-500; }
+  .muted { @apply text-sm text-slate-400; }
+  .button { @apply inline-flex items-center justify-center gap-2 rounded-lg bg-signal px-4 py-2.5 text-sm font-semibold text-ink transition hover:bg-emerald-200 focus:outline-none focus:ring-2 focus:ring-signal/60 disabled:cursor-not-allowed disabled:opacity-50; }
+  .button-secondary { @apply inline-flex items-center justify-center gap-2 rounded-lg border border-line bg-white/[.03] px-4 py-2.5 text-sm font-medium text-slate-200 transition hover:border-slate-600 hover:bg-white/[.06]; }
+  .input { @apply w-full rounded-lg border-line bg-[#0b0f14] text-slate-100 placeholder:text-slate-600 focus:border-signal focus:ring-signal/20; }
+}
