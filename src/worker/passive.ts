@@ -14,6 +14,172 @@ const ROUTE_TOKEN =
   /["'`](\/(?:api|admin|internal|graphql|auth|oauth|users?|accounts?|settings|dashboard|export|download|invite|approve|reject|publish|archive|restore|batch|search|webhook|callback|v\d+|_next\/data)[A-Za-z0-9._~!$&'()*+,;=:@%/?#\-[\]]*)["'`]/g;
 const FIELD_TOKEN =
   /\b(?:role|isAdmin|admin|ownerId|userId|tenantId|accountId|price|amount|status|state|redirect|callback|returnUrl|next|url|file|path|template|query|filter|sort|limit|offset|token|secret|invite|approve|publish|archive)\b/gi;
+const SECRET_VALUE_TOKEN =
+  /\b(?:api[_-]?key|secret|token|password|passwd|pwd|private[_-]?key|access[_-]?key|client[_-]?secret|database[_-]?url|jwt|stripe|sendgrid|mailgun|aws[_-]?access|aws[_-]?secret|github[_-]?token)\b\s*[:=]\s*["']?[A-Za-z0-9_./+=:@%$!#-]{8,}/i;
+const EXPOSURE_CANDIDATES: Array<{
+  path: string;
+  rule: string;
+  title: string;
+  category: string;
+  cwe: string;
+  severity: FindingInput["severity"];
+  confidence?: FindingInput["confidence"];
+  impact: string;
+  remediation: string;
+}> = [
+  {
+    path: "/.git/config",
+    rule: "exposure/git-config",
+    title: "Git repository metadata is exposed",
+    category: "Sensitive file exposure",
+    cwe: "CWE-548",
+    severity: "HIGH",
+    confidence: "CONFIRMED",
+    impact:
+      "Public Git metadata can reveal repository origins, branch names and may enable source-code recovery when other .git objects are reachable.",
+    remediation:
+      "Block access to .git paths at the web server and remove repository metadata from the deployed web root.",
+  },
+  ...["/.env", "/.env.local", "/.env.production", "/.env.development"].map(
+    (path) => ({
+      path,
+      rule: "exposure/env-file",
+      title: "Environment file is exposed",
+      category: "Secret exposure",
+      cwe: "CWE-200",
+      severity: "HIGH" as const,
+      confidence: "CONFIRMED" as const,
+      impact:
+        "Environment files often contain database URLs, API keys, signing secrets, cloud credentials and service tokens.",
+      remediation:
+        "Remove the file from the public web root, rotate any exposed secrets, and add explicit deny rules for environment files.",
+    }),
+  ),
+  ...[
+    "/backup.zip",
+    "/backup.tar.gz",
+    "/site.zip",
+    "/www.zip",
+    "/public.zip",
+    "/database.sql",
+    "/db.sql",
+    "/dump.sql",
+    "/backup.sql",
+  ].map((path) => ({
+    path,
+    rule: "exposure/backup-artifact",
+    title: "Backup or database artifact is publicly reachable",
+    category: "Sensitive file exposure",
+    cwe: "CWE-530",
+    severity: "HIGH" as const,
+    confidence: "HIGH" as const,
+    impact:
+      "Public backups and SQL dumps can expose source code, credentials, customer data or complete database contents.",
+    remediation:
+      "Move backups outside the web root, require authentication for administrative artifacts, and rotate any secrets exposed inside the artifact.",
+  })),
+  ...["/phpinfo.php", "/info.php"].map((path) => ({
+    path,
+    rule: "exposure/phpinfo",
+    title: "PHP information page is exposed",
+    category: "Information disclosure",
+    cwe: "CWE-200",
+    severity: "HIGH" as const,
+    confidence: "CONFIRMED" as const,
+    impact:
+      "phpinfo output exposes server configuration, loaded modules, paths and environment variables that can accelerate exploitation.",
+    remediation:
+      "Remove phpinfo pages from production and restrict diagnostic endpoints to authenticated administrative networks.",
+  })),
+  ...[
+    "/swagger.json",
+    "/openapi.json",
+    "/api-docs",
+    "/swagger-ui.html",
+    "/docs",
+  ].map((path) => ({
+    path,
+    rule: "exposure/api-documentation",
+    title: "API documentation is publicly reachable",
+    category: "Attack surface exposure",
+    cwe: "CWE-200",
+    severity: "MEDIUM" as const,
+    confidence: "HIGH" as const,
+    impact:
+      "Public API documentation can reveal hidden routes, parameters, schemas, authentication assumptions and administrative workflows.",
+    remediation:
+      "Restrict internal API documentation or publish only intentionally public API references with sensitive routes removed.",
+  })),
+  {
+    path: "/server-status",
+    rule: "exposure/server-status",
+    title: "Server status endpoint is exposed",
+    category: "Information disclosure",
+    cwe: "CWE-200",
+    severity: "HIGH",
+    confidence: "CONFIRMED",
+    impact:
+      "Server status pages can expose active requests, paths, client IPs, worker state and backend operational detail.",
+    remediation:
+      "Disable public server-status access or restrict it to authenticated administrative networks.",
+  },
+  ...["/actuator/env", "/actuator/heapdump", "/actuator/configprops"].map(
+    (path) => ({
+      path,
+      rule: "exposure/spring-actuator",
+      title: "Sensitive Spring Actuator endpoint is exposed",
+      category: "Sensitive endpoint exposure",
+      cwe: "CWE-200",
+      severity: "HIGH" as const,
+      confidence: "HIGH" as const,
+      impact:
+        "Sensitive actuator endpoints can expose environment variables, heap contents, configuration properties and application internals.",
+      remediation:
+        "Disable sensitive actuator endpoints publicly and require strong authentication for operational endpoints.",
+    }),
+  ),
+  {
+    path: "/.DS_Store",
+    rule: "exposure/ds-store",
+    title: "macOS .DS_Store metadata is exposed",
+    category: "Information disclosure",
+    cwe: "CWE-548",
+    severity: "MEDIUM",
+    confidence: "HIGH",
+    impact:
+      ".DS_Store files can reveal hidden filenames and directory structure that are not linked from the application.",
+    remediation:
+      "Remove .DS_Store files from the deployment and block dotfile access.",
+  },
+  {
+    path: "/.svn/entries",
+    rule: "exposure/svn-entries",
+    title: "Subversion metadata is exposed",
+    category: "Sensitive file exposure",
+    cwe: "CWE-548",
+    severity: "HIGH",
+    confidence: "HIGH",
+    impact:
+      "Public version-control metadata can reveal repository layout and may lead to source-code recovery.",
+    remediation:
+      "Block version-control metadata paths and remove them from the deployed web root.",
+  },
+  ...["/package-lock.json", "/yarn.lock", "/pnpm-lock.yaml", "/composer.lock"].map(
+    (path) => ({
+      path,
+      rule: "exposure/dependency-lockfile",
+      title: "Dependency lockfile is exposed",
+      category: "Information disclosure",
+      cwe: "CWE-200",
+      severity: "MEDIUM" as const,
+      confidence: "HIGH" as const,
+      impact:
+        "Lockfiles reveal exact dependency versions that can be matched against known vulnerabilities.",
+      remediation:
+        "Do not serve build and dependency metadata from the production web root.",
+    }),
+  ),
+];
 
 type PageArtifact = {
   url: string;
@@ -510,6 +676,53 @@ export async function runPassive(
         technologies: [...technologies.values()],
       });
   });
+  await stage(emit, "exposure-probes", async () => {
+    const exposureCandidates = exposureProbeCandidates(new URL(finalUrl));
+    const limit = job.mode === "QUICK" ? 20 : job.mode === "FULL" ? 60 : 120;
+    for (const candidate of exposureCandidates.slice(0, limit)) {
+      await ensureRunning(cancelled);
+      try {
+        const page = await safeFetch(candidate.url, root, {
+          headers: { "x-probeveil-discovery": candidate.source },
+        });
+        endpoints.push(
+          endpoint(
+            page.url,
+            page.status,
+            page.contentType,
+            1,
+            true,
+            candidate.source,
+            page.body,
+          ),
+        );
+        artifacts.push(artifact(page));
+        for (const technology of detectTechnologies(page))
+          technologies.set(
+            `${technology.name}:${technology.version ?? "detected"}`,
+            technology,
+          );
+        for (const parameter of extractParameters(page))
+          parameters.set(parameterKey(parameter), parameter);
+        const detected = exposureFindingFor(candidate.probe, page);
+        if (detected) findings.push(detected);
+        for (const routeCandidate of extractRouteCandidates(page.body, page.url))
+          routeCandidates.set(routeCandidate.url.toString(), routeCandidate);
+      } catch (error) {
+        endpoints.push({
+          ...endpoint(
+            candidate.url.toString(),
+            undefined,
+            undefined,
+            1,
+            false,
+            candidate.source,
+          ),
+          title: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  });
   await stage(emit, "hidden-surface", async () => {
     const limit = job.mode === "QUICK" ? 20 : job.mode === "FULL" ? 60 : 140;
     for (const candidate of generateFrameworkCandidates(new URL(finalUrl), [
@@ -959,6 +1172,158 @@ function generateFrameworkCandidates(
     url: new URL(path, base),
     source: "framework-candidate",
   }));
+}
+
+function exposureProbeCandidates(base: URL) {
+  return [
+    ...new Map(
+      EXPOSURE_CANDIDATES.map((probe) => {
+        const url = new URL(probe.path, base);
+        return [
+          canonical(url),
+          {
+            probe,
+            source: `exposure-probe:${probe.rule}`,
+            url,
+          },
+        ];
+      }),
+    ).values(),
+  ];
+}
+
+function exposureFindingFor(
+  probe: (typeof EXPOSURE_CANDIDATES)[number],
+  response: SafeResponse,
+) {
+  if (response.status >= 400) return undefined;
+  const evidence = response.body.slice(0, 12000);
+  const contentType = response.contentType?.toLowerCase() ?? "";
+  const body = response.body;
+  const fallback = looksLikeHtmlFallback(response, probe.path);
+  let matched = false;
+  switch (probe.rule) {
+    case "exposure/git-config":
+      matched =
+        /\[core\]/i.test(body) &&
+        /repositoryformatversion|bare\s*=|logallrefupdates/i.test(body);
+      break;
+    case "exposure/env-file":
+      matched =
+        !fallback &&
+        (/^\s*[A-Z][A-Z0-9_]{2,}\s*=\s*.{4,}$/m.test(body) ||
+          SECRET_VALUE_TOKEN.test(body));
+      break;
+    case "exposure/backup-artifact":
+      matched =
+        !fallback &&
+        (/application\/(?:zip|gzip|x-gzip|octet-stream)|sql/i.test(
+          contentType,
+        ) ||
+          body.startsWith("PK") ||
+          /\b(?:CREATE TABLE|INSERT INTO|mysqldump|PostgreSQL database dump)\b/i.test(
+            body,
+          ));
+      break;
+    case "exposure/phpinfo":
+      matched = /phpinfo\(\)|PHP Version|<title>phpinfo\(\)<\/title>/i.test(
+        body,
+      );
+      break;
+    case "exposure/api-documentation":
+      matched =
+        /"openapi"\s*:|"swagger"\s*:|"paths"\s*:|Swagger UI|api-docs|redoc/i.test(
+          body,
+        );
+      break;
+    case "exposure/server-status":
+      matched =
+        /Apache Server Status|Server Version|Current Time|Scoreboard|Srv\s+PID\s+Acc/i.test(
+          body,
+        );
+      break;
+    case "exposure/spring-actuator":
+      matched =
+        !fallback &&
+        /propertySources|activeProfiles|systemProperties|management\.endpoints|heapdump|spring\./i.test(
+          body,
+        );
+      break;
+    case "exposure/ds-store":
+      matched = !fallback && (body.includes("Bud1") || body.length > 100);
+      break;
+    case "exposure/svn-entries":
+      matched =
+        !fallback &&
+        /committed-rev|committed-date|has-props|svn:this_dir|^\s*dir\s*$/im.test(
+          body,
+        );
+      break;
+    case "exposure/dependency-lockfile":
+      matched =
+        !fallback &&
+        /"lockfileVersion"\s*:|^# yarn lockfile|^lockfileVersion:|content-hash|packages:/im.test(
+          body,
+        );
+      break;
+  }
+  if (!matched && !fallback && SECRET_VALUE_TOKEN.test(body)) {
+    return finding(
+      "Secret-like values are exposed in a public response",
+      "Secret exposure",
+      "CWE-200",
+      "HIGH",
+      "HIGH",
+      response.url,
+      "exposure/secret-like-value",
+      "The response contains key, token, password or secret-shaped values that may enable unauthorized access if valid.",
+      "Remove the public file or endpoint, rotate any exposed credentials, and add deny rules for secret-bearing files.",
+      evidence,
+    );
+  }
+  if (!matched) return undefined;
+  const severity = escalateExposureSeverity(probe, body, contentType);
+  return finding(
+    probe.title,
+    probe.category,
+    probe.cwe,
+    severity,
+    probe.confidence ?? "HIGH",
+    response.url,
+    probe.rule,
+    probe.impact,
+    probe.remediation,
+    evidence,
+  );
+}
+
+function looksLikeHtmlFallback(response: SafeResponse, requestedPath: string) {
+  const body = response.body.slice(0, 30000);
+  if (!response.contentType?.toLowerCase().includes("text/html")) return false;
+  if (!/<html[\s>]/i.test(body)) return false;
+  if (/not found|404|page could not be found|no route matches/i.test(body))
+    return true;
+  if (
+    requestedPath.startsWith("/.") ||
+    /\.(?:zip|gz|sql|json|lock|yaml|yml)$/i.test(requestedPath)
+  )
+    return true;
+  return false;
+}
+
+function escalateExposureSeverity(
+  probe: (typeof EXPOSURE_CANDIDATES)[number],
+  body: string,
+  contentType: string,
+): FindingInput["severity"] {
+  if (SECRET_VALUE_TOKEN.test(body)) return "CRITICAL";
+  if (
+    probe.rule === "exposure/backup-artifact" &&
+    (/sql/i.test(contentType) ||
+      /\b(?:CREATE TABLE|INSERT INTO|database dump)\b/i.test(body))
+  )
+    return "CRITICAL";
+  return probe.severity;
 }
 
 async function differentialProbe(

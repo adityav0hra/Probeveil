@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { parseNucleiJsonLines } from "../src/worker/external-scanners";
+import {
+  parseNucleiJsonLines,
+  selectNucleiTargets,
+} from "../src/worker/external-scanners";
 
 describe("external scanner adapters", () => {
   it("converts nuclei JSONL findings into Probeveil findings", () => {
@@ -31,5 +34,37 @@ describe("external scanner adapters", () => {
       severity: "HIGH",
       title: "Exposed Git Config",
     });
+  });
+
+  it("feeds broad endpoint coverage into full and maximum nuclei scans", () => {
+    const endpoints = Array.from({ length: 120 }, (_, index) => ({
+      statusCode: 200,
+      tested: true,
+      url: `https://example.com/route-${index}`,
+    }));
+
+    expect(
+      selectNucleiTargets(
+        {
+          mode: "FULL",
+          scanId: "scan-1",
+          token: "token",
+          url: "https://example.com",
+        },
+        endpoints,
+      ),
+    ).toHaveLength(80);
+
+    expect(
+      selectNucleiTargets(
+        {
+          mode: "MAXIMUM",
+          scanId: "scan-1",
+          token: "token",
+          url: "https://example.com",
+        },
+        endpoints,
+      ),
+    ).toHaveLength(121);
   });
 });

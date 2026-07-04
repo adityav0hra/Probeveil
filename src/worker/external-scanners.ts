@@ -4,7 +4,7 @@ import { promisify } from "node:util";
 import type { FindingInput, ScanJob } from "./types";
 
 const run = promisify(execFile);
-const NUCLEI_TIMEOUT_MS = Number(process.env.NUCLEI_TIMEOUT_MS ?? 20_000);
+const NUCLEI_TIMEOUT_MS = Number(process.env.NUCLEI_TIMEOUT_MS ?? 0);
 
 type EndpointLike = {
   url: string;
@@ -44,7 +44,9 @@ export async function runExternalScanners({
 
   const findings: FindingInput[] = [];
   if (await commandExists("nuclei")) {
-    findings.push(...(await runNuclei(targetUrls(job, endpoints), cancelled)));
+    findings.push(
+      ...(await runNuclei(selectNucleiTargets(job, endpoints), cancelled, job)),
+    );
   }
   return findings;
 }
@@ -66,36 +68,41 @@ export function parseNucleiJsonLines(value: string): FindingInput[] {
 async function runNuclei(
   targets: string[],
   cancelled: () => Promise<boolean>,
+  job: ScanJob,
 ): Promise<FindingInput[]> {
   const findings: FindingInput[] = [];
+  const tags = (process.env.NUCLEI_TAGS ?? "")
+    .split(",")
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+  const args = [
+    "-jsonl",
+    "-silent",
+    "-no-color",
+    "-duc",
+    "-severity",
+    "info,low,medium,high,critical",
+    "-exclude-tags",
+    "dos,fuzz,brute-force,creds-stuffing",
+    "-timeout",
+    job.mode === "MAXIMUM" ? "12" : "8",
+    "-retries",
+    job.mode === "MAXIMUM" ? "2" : "1",
+    "-rl",
+    process.env.NUCLEI_RATE_LIMIT ?? (job.mode === "MAXIMUM" ? "8" : "5"),
+  ];
+  if (tags.length) args.push("-tags", tags.join(","));
   for (const target of targets) {
     if (await cancelled()) throw new Error("Scan cancelled");
     try {
       const { stdout } = await run(
         "nuclei",
-        [
-          "-u",
-          target,
-          "-jsonl",
-          "-silent",
-          "-no-color",
-          "-duc",
-          "-severity",
-          "low,medium,high,critical",
-          "-tags",
-          "cve,exposure,misconfig,takeover,default-login",
-          "-exclude-tags",
-          "dos,fuzz,brute-force,creds-stuffing",
-          "-timeout",
-          "6",
-          "-retries",
-          "1",
-          "-rl",
-          "5",
-        ],
+        ["-u", target, ...args],
         {
-          maxBuffer: 4 * 1024 * 1024,
-          timeout: NUCLEI_TIMEOUT_MS,
+          maxBuffer: 16 * 1024 * 1024,
+          timeout:
+            NUCLEI_TIMEOUT_MS ||
+            (job.mode === "MAXIMUM" ? 300_000 : 120_000),
         },
       );
       findings.push(...parseNucleiJsonLines(stdout));
@@ -109,7 +116,7 @@ async function runNuclei(
       );
     }
   }
-  return dedupeFindings(findings).slice(0, 100);
+  return dedupeFindings(findings).slice(0, 500);
 }
 
 async function commandExists(command: string) {
@@ -121,8 +128,10 @@ async function commandExists(command: string) {
   }
 }
 
-function targetUrls(job: ScanJob, endpoints: EndpointLike[]) {
-  const limit = job.mode === "FULL" ? 4 : 10;
+export function selectNucleiTargets(job: ScanJob, endpoints: EndpointLike[]) {
+  const configured = Number(process.env.NUCLEI_TARGET_LIMIT ?? 0);
+  const limit =
+    configured > 0 ? configured : job.mode === "MAXIMUM" ? 250 : 80;
   const candidates = [
     job.url,
     ...endpoints
