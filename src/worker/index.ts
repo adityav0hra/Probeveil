@@ -9,16 +9,27 @@ const api = process.env.INTERNAL_API_URL ?? "http://localhost:3000";
 
 new Worker<ScanJob>("scan.passive", async (queueJob) => {
   const job = queueJob.data;
-  const claimed = await db.workerJob.updateMany({
-    where: { scanId: job.scanId, status: "QUEUED" },
-    data: {
+  const claimed = await db.scan.updateMany({
+    where: { id: job.scanId, status: "QUEUED" },
+    data: { startedAt: new Date(), status: "RUNNING" },
+  });
+  if (claimed.count === 0) return;
+  await db.workerJob.upsert({
+    where: { queueJobId: String(queueJob.id) },
+    update: {
       attempts: { increment: 1 },
-      queueJobId: String(queueJob.id),
       startedAt: new Date(),
       status: "RUNNING",
     },
+    create: {
+      attempts: 1,
+      queueJobId: String(queueJob.id),
+      scanId: job.scanId,
+      startedAt: new Date(),
+      status: "RUNNING",
+      workerType: "PASSIVE_HTTP",
+    },
   });
-  if (claimed.count === 0) return;
   const emit = async (event: unknown) => {
     const response = await fetch(`${api}/api/internal/scans/${job.scanId}/events`, { method: "POST", headers: { authorization: `Bearer ${job.token}`, "content-type": "application/json" }, body: JSON.stringify(event), signal: AbortSignal.timeout(15_000) });
     if (!response.ok) throw new Error(`Control-plane event rejected (${response.status})`);

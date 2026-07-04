@@ -26,16 +26,29 @@ export async function POST(
   if (scan.status !== "QUEUED")
     return NextResponse.json({ ok: true, skipped: scan.status });
 
-  const claimed = await db.workerJob.updateMany({
-    where: { scanId: id, status: "QUEUED" },
-    data: {
+  const claimed = await db.scan.updateMany({
+    where: { id, status: "QUEUED" },
+    data: { startedAt: new Date(), status: "RUNNING" },
+  });
+  if (claimed.count === 0)
+    return NextResponse.json({ ok: true, skipped: "already-claimed" });
+
+  await db.workerJob.upsert({
+    where: { queueJobId: `serverless:${id}` },
+    update: {
       attempts: { increment: 1 },
       startedAt: new Date(),
       status: "RUNNING",
     },
+    create: {
+      attempts: 1,
+      queueJobId: `serverless:${id}`,
+      scanId: id,
+      startedAt: new Date(),
+      status: "RUNNING",
+      workerType: "SERVERLESS_PASSIVE_HTTP",
+    },
   });
-  if (claimed.count === 0)
-    return NextResponse.json({ ok: true, skipped: "already-claimed" });
 
   const origin = new URL(request.url).origin;
   const job: ScanJob = {
