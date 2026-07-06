@@ -67,7 +67,8 @@ async function sendViaResend({
   text: string;
 }) {
   const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.CONTACT_EMAIL_FROM;
+  const from =
+    process.env.CONTACT_EMAIL_FROM ?? "Probeveil <onboarding@resend.dev>";
   if (!apiKey || !from) return "NOT_CONFIGURED" satisfies EmailResult;
 
   const response = await fetch("https://api.resend.com/emails", {
@@ -78,6 +79,14 @@ async function sendViaResend({
     },
     body: JSON.stringify({ from, to, subject, text }),
   });
+
+  if (!response.ok) {
+    console.error("Contact email delivery failed", {
+      provider: "resend",
+      status: response.status,
+      to,
+    });
+  }
 
   return response.ok ? "SENT" : "FAILED";
 }
@@ -122,14 +131,18 @@ export async function sendContactEmails(enquiry: ContactEnquiry) {
     text: renderAdminEmail(enquiry),
   });
 
-  const senderResult = await sendEmail({
-    to: enquiry.email,
-    subject: "We received your Probeveil enquiry",
-    text: renderSenderEmail(enquiry),
-  });
+  if (process.env.CONTACT_SEND_AUTO_REPLY === "true") {
+    const senderResult = await sendEmail({
+      to: enquiry.email,
+      subject: "We received your Probeveil enquiry",
+      text: renderSenderEmail(enquiry),
+    });
 
-  if (adminResult === "SENT" && senderResult === "SENT") return "SENT";
-  if (adminResult === "NOT_CONFIGURED" && senderResult === "NOT_CONFIGURED")
-    return "NOT_CONFIGURED";
-  return "FAILED";
+    if (adminResult === "SENT" && senderResult === "SENT") return "SENT";
+    if (adminResult === "NOT_CONFIGURED" && senderResult === "NOT_CONFIGURED")
+      return "NOT_CONFIGURED";
+    return "FAILED";
+  }
+
+  return adminResult;
 }
