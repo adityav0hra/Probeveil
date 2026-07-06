@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState } from "react";
 import { Send } from "lucide-react";
 import { enquiryTypes, preferredScanDepths } from "@/lib/contact/options";
 import {
@@ -24,15 +24,6 @@ export function ContactForm() {
     submitContactEnquiry,
     initialState,
   );
-  const [startedAt, setStartedAt] = useState("");
-
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      setStartedAt(Date.now().toString());
-    }, 0);
-    return () => window.clearTimeout(timeout);
-  }, []);
-
   if (state.ok) {
     return (
       <section className="panel p-7">
@@ -47,7 +38,7 @@ export function ContactForm() {
 
   return (
     <form action={formAction} className="panel p-5 sm:p-7">
-      <input name="startedAt" type="hidden" value={startedAt} />
+      <input name="startedAt" type="hidden" value="1" readOnly />
       <input name="sourcePage" type="hidden" value="/contact" />
       <label className="sr-only" htmlFor="website">
         Website
@@ -206,7 +197,7 @@ export function ContactForm() {
 
       <button
         className="button mt-6 w-full sm:w-auto"
-        disabled={pending || !startedAt}
+        disabled={pending}
       >
         <Send size={16} />
         {pending ? "Sending..." : "Send enquiry"}
