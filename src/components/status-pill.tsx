@@ -5,7 +5,7 @@ export function StatusPill({ value }: { value: string }) {
       className={clsx(
         "inline-flex rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-wider",
         {
-          "border-emerald-500/20 bg-emerald-500/10 text-emerald-300": [
+          "border-red-500/20 bg-red-500/10 text-red-200": [
             "COMPLETED",
             "CONFIRMED",
             "RUNNING",
@@ -21,7 +21,7 @@ export function StatusPill({ value }: { value: string }) {
             "IN_REVIEW",
             "NOT_CONFIGURED",
           ].includes(value),
-          "border-red-500/20 bg-red-500/10 text-red-300": [
+          "border-rose-500/30 bg-rose-500/10 text-rose-200": [
             "FAILED",
             "CRITICAL",
             "HIGH",

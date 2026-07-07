@@ -16,16 +16,16 @@ import { auth } from "@/lib/auth";
 
 const capabilityCards = [
   {
-    title: "Full website discovery",
+    title: "Surface discovery",
     body: "Crawls internal and external routes, follows redirects, records forms, scripts, security headers, exposed services and reachable application paths.",
     icon: Globe2,
-    accent: "text-sky-300",
+    accent: "text-red-300",
   },
   {
     title: "Evidence-backed findings",
     body: "Every issue is tied to request data, response signals, confidence, affected URLs and remediation notes so reports feel usable instead of vague.",
     icon: ShieldCheck,
-    accent: "text-emerald-300",
+    accent: "text-red-300",
   },
   {
     title: "Evasion-aware coverage",
@@ -63,13 +63,13 @@ export default async function HomePage() {
 
   return (
     <main className="min-h-screen overflow-hidden">
-      <header className="mx-auto flex max-w-7xl items-center justify-between px-5 py-5 lg:px-8">
+      <header className="mx-auto flex max-w-7xl items-center justify-between border-b border-line px-5 py-5 lg:px-8">
         <Link href="/" className="flex items-center gap-3">
           <Image
             alt="Probeveil"
-            className="size-10 rounded-lg border border-signal/25 bg-signal/10"
+            className="size-10 rounded-md border border-signal/30 bg-signal/10"
             height={40}
-            src="/probeveil-icon.png"
+            src="/probeveil-icon-red.png"
             width={40}
           />
           <div>
@@ -96,27 +96,15 @@ export default async function HomePage() {
         </nav>
       </header>
 
-      <section className="relative mx-auto max-w-7xl px-5 pb-12 pt-10 lg:px-8 lg:pb-16 lg:pt-16">
-        <div className="pointer-events-none absolute inset-x-5 top-8 -z-10 h-[620px] rounded-[2rem] border border-white/[.04] bg-[linear-gradient(135deg,rgba(124,248,196,.08),rgba(56,189,248,.06)_35%,rgba(251,113,133,.05)_70%,transparent)]" />
-        <div className="pointer-events-none absolute right-[-70px] top-14 -z-10 hidden opacity-[.18] md:block">
-          <Image
-            alt=""
-            className="size-[460px]"
-            height={460}
-            src="/probeveil-icon.png"
-            width={460}
-          />
-        </div>
-
-        <div className="max-w-4xl">
-          <p className="eyebrow">Probeveil security platform</p>
-          <h1 className="mt-5 max-w-3xl text-5xl font-semibold leading-[1.03] tracking-tight text-white sm:text-6xl lg:text-7xl">
+      <section className="relative mx-auto max-w-7xl px-5 pb-12 pt-10 lg:px-8 lg:pb-14 lg:pt-14">
+        <div className="max-w-3xl">
+          <p className="eyebrow">Website security operations</p>
+          <h1 className="mt-5 max-w-3xl text-4xl font-semibold leading-tight tracking-tight text-white sm:text-5xl">
             Probeveil
           </h1>
-          <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-300">
-            Website security scanning with deep route discovery, evidence-rich
-            vulnerability analysis, operational dashboards and professional PDF
-            reporting for administrators.
+          <p className="mt-5 max-w-2xl text-base leading-7 text-slate-300">
+            A control console for approved website scanning, evidence review,
+            issue tracking, scheduling and report delivery.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <Link className="button" href="/contact">
@@ -130,16 +118,18 @@ export default async function HomePage() {
           </div>
         </div>
 
-        <div className="mt-12 grid gap-4 lg:grid-cols-[1.2fr_.8fr]">
+        <div className="mt-10 grid gap-4 lg:grid-cols-[1.25fr_.75fr]">
           <section className="panel overflow-hidden">
             <div className="flex items-center justify-between border-b border-line px-5 py-4">
               <div>
-                <p className="eyebrow">Live scan cockpit</p>
-                <h2 className="mt-1 font-semibold">Admin dashboard preview</h2>
+                <p className="eyebrow">Operations snapshot</p>
+                <h2 className="mt-1 font-semibold">
+                  Coverage and evidence flow
+                </h2>
               </div>
               <div className="flex items-center gap-2 text-xs text-slate-500">
                 <Activity size={14} className="text-signal" />
-                Online
+                Active
               </div>
             </div>
             <div className="grid gap-4 p-5 md:grid-cols-4">
@@ -159,7 +149,7 @@ export default async function HomePage() {
               <div className="grid gap-3 md:grid-cols-5">
                 {flow.map((item, index) => (
                   <div className="flex items-center gap-3 md:block" key={item}>
-                    <div className="grid size-8 shrink-0 place-items-center rounded-lg border border-signal/20 bg-signal/10 text-xs font-semibold text-signal">
+                    <div className="grid size-8 shrink-0 place-items-center rounded-md border border-signal/25 bg-signal/10 text-xs font-semibold text-signal">
                       {index + 1}
                     </div>
                     <p className="mt-0 text-sm text-slate-300 md:mt-3">
@@ -175,8 +165,8 @@ export default async function HomePage() {
             <p className="eyebrow">Operational signal</p>
             <div className="mt-5 space-y-4">
               {[
-                ["0", "Critical blind spots tolerated"],
-                ["24/7", "Worker-ready scan queue"],
+                ["0", "Unreviewed criticals tolerated"],
+                ["24/7", "Scheduled scan queue"],
                 ["PDF", "Executive and technical reports"],
               ].map(([value, label]) => (
                 <div
@@ -196,7 +186,7 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <section className="border-y border-line bg-[#090c11]/70">
+      <section className="border-y border-line bg-[#0b0c0f]">
         <div className="mx-auto grid max-w-7xl gap-4 px-5 py-12 lg:grid-cols-4 lg:px-8">
           {capabilityCards.map(({ title, body, icon: Icon, accent }) => (
             <article className="panel p-5" key={title}>

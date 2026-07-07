@@ -569,7 +569,7 @@ export default async function AutomationSettingsPage() {
                     </p>
                     {notification.scan && (
                       <Link
-                        className="mt-2 inline-block break-all text-xs text-signal hover:text-emerald-200"
+                        className="mt-2 inline-block break-all text-xs text-signal hover:text-red-200"
                         href={`/scans/${notification.scan.id}`}
                       >
                         {notification.scan.normalizedUrl}
@@ -670,13 +670,13 @@ function formatDate(date: Date) {
 
 function statusClass(enabled: boolean) {
   return enabled
-    ? "rounded-full bg-emerald-400/10 px-2.5 py-1 text-xs font-medium text-emerald-200"
+    ? "rounded-full bg-red-500/10 px-2.5 py-1 text-xs font-medium text-red-200"
     : "rounded-full bg-slate-500/10 px-2.5 py-1 text-xs font-medium text-slate-300";
 }
 
 function deliveryClass(status: string) {
   if (status === "SENT")
-    return "h-fit rounded-full bg-emerald-400/10 px-2.5 py-1 text-xs font-medium text-emerald-200";
+    return "h-fit rounded-full bg-red-500/10 px-2.5 py-1 text-xs font-medium text-red-200";
   if (status === "FAILED")
     return "h-fit rounded-full bg-red-500/10 px-2.5 py-1 text-xs font-medium text-red-300";
   return "h-fit rounded-full bg-amber-400/10 px-2.5 py-1 text-xs font-medium text-amber-200";
@@ -684,7 +684,7 @@ function deliveryClass(status: string) {
 
 function providerClass(configured: boolean) {
   return configured
-    ? "rounded-full bg-emerald-400/10 px-2.5 py-1 text-xs font-medium text-emerald-200"
+    ? "rounded-full bg-red-500/10 px-2.5 py-1 text-xs font-medium text-red-200"
     : "rounded-full bg-amber-400/10 px-2.5 py-1 text-xs font-medium text-amber-200";
 }
 

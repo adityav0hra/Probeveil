@@ -2,16 +2,41 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { color-scheme: dark; }
-* { border-color: #222a36; }
-html { background: #07090d; }
-body { min-height: 100vh; background: radial-gradient(circle at 60% -20%, rgba(42,96,83,.18), transparent 38%), #07090d; color: #e8edf3; }
-::selection { background: rgba(124,248,196,.24); color: white; }
+:root {
+  color-scheme: dark;
+}
+* {
+  border-color: #2a2d34;
+}
+html {
+  background: #08090b;
+}
+body {
+  min-height: 100vh;
+  background: #08090b;
+  color: #eef2f7;
+}
+::selection {
+  background: rgba(239, 68, 68, 0.28);
+  color: white;
+}
 @layer components {
-  .panel { @apply rounded-xl border border-line bg-panel/90 shadow-glow; }
-  .eyebrow { @apply text-[11px] font-semibold uppercase tracking-[.18em] text-slate-500; }
-  .muted { @apply text-sm text-slate-400; }
-  .button { @apply inline-flex items-center justify-center gap-2 rounded-lg bg-signal px-4 py-2.5 text-sm font-semibold text-ink transition hover:bg-emerald-200 focus:outline-none focus:ring-2 focus:ring-signal/60 disabled:cursor-not-allowed disabled:opacity-50; }
-  .button-secondary { @apply inline-flex items-center justify-center gap-2 rounded-lg border border-line bg-white/[.03] px-4 py-2.5 text-sm font-medium text-slate-200 transition hover:border-slate-600 hover:bg-white/[.06]; }
-  .input { @apply w-full rounded-lg border-line bg-[#0b0f14] text-slate-100 placeholder:text-slate-600 focus:border-signal focus:ring-signal/20; }
+  .panel {
+    @apply rounded-lg border border-line bg-panel shadow-glow;
+  }
+  .eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-[.16em] text-slate-500;
+  }
+  .muted {
+    @apply text-sm text-slate-400;
+  }
+  .button {
+    @apply inline-flex items-center justify-center gap-2 rounded-md bg-signal px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-red-500 focus:outline-none focus:ring-2 focus:ring-signal/50 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .button-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-md border border-line bg-white/[.025] px-4 py-2.5 text-sm font-medium text-slate-200 transition hover:border-red-500/40 hover:bg-red-500/[.08] hover:text-white;
+  }
+  .input {
+    @apply w-full rounded-md border-line bg-[#0c0d10] text-slate-100 placeholder:text-slate-600 focus:border-signal focus:ring-signal/20;
+  }
 }

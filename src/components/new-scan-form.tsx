@@ -59,7 +59,7 @@ export function NewScanForm({
         />
       </label>
       {policies.length > 0 && (
-        <fieldset className="rounded-xl border border-line bg-white/[.015] p-4">
+        <fieldset className="rounded-lg border border-line bg-white/[.015] p-4">
           <legend className="px-2 text-sm font-medium text-slate-200">
             Scan policy
           </legend>
@@ -81,7 +81,7 @@ export function NewScanForm({
                   <p className="text-sm font-semibold text-slate-100">
                     {policy.name}
                   </p>
-                  <span className="rounded-full bg-emerald-400/10 px-2 py-0.5 text-[11px] font-medium text-emerald-200">
+                  <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-[11px] font-medium text-red-200">
                     {policy.mode.toLowerCase()}
                   </span>
                   {policy.cadence && (
@@ -112,7 +112,7 @@ export function NewScanForm({
         <div className="mt-3 grid gap-3 sm:grid-cols-3">
           {modes.map(([value, label, description]) => (
             <label
-              className="flex cursor-pointer items-start gap-3 rounded-xl border border-line bg-white/[.015] p-4 text-left transition hover:border-slate-600"
+              className="flex cursor-pointer items-start gap-3 rounded-lg border border-line bg-white/[.015] p-4 text-left transition hover:border-slate-600"
               key={value}
             >
               <input
@@ -134,7 +134,7 @@ export function NewScanForm({
           ))}
         </div>
       </fieldset>
-      <fieldset className="rounded-xl border border-line bg-white/[.015] p-4">
+      <fieldset className="rounded-lg border border-line bg-white/[.015] p-4">
         <legend className="px-2 text-sm font-medium text-slate-200">
           Advanced coverage
         </legend>
@@ -253,7 +253,7 @@ export function NewScanForm({
           </label>
         </div>
       </fieldset>
-      <fieldset className="rounded-xl border border-line bg-white/[.015] p-4">
+      <fieldset className="rounded-lg border border-line bg-white/[.015] p-4">
         <legend className="px-2 text-sm font-medium text-slate-200">
           Role comparison
         </legend>

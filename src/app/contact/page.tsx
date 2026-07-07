@@ -10,9 +10,9 @@ export default function ContactPage() {
         <Link href="/" className="flex items-center gap-3">
           <Image
             alt="Probeveil"
-            className="size-10 rounded-lg border border-signal/25 bg-signal/10"
+            className="size-10 rounded-md border border-signal/30 bg-signal/10"
             height={40}
-            src="/probeveil-icon.png"
+            src="/probeveil-icon-red.png"
             width={40}
           />
           <div>

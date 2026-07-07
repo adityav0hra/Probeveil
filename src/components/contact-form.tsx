@@ -185,7 +185,7 @@ export function ContactForm() {
 
       <label className="mt-5 flex gap-3 text-sm leading-6 text-slate-400">
         <input
-          className="mt-1 rounded border-line bg-[#0b0f14] text-signal focus:ring-signal/20"
+          className="mt-1 rounded border-line bg-[#0c0d10] text-signal focus:ring-signal/20"
           defaultChecked={value(state, "consent") === "on"}
           name="consent"
           required
@@ -195,10 +195,7 @@ export function ContactForm() {
       </label>
       <FieldError errors={state.errors?.consent} />
 
-      <button
-        className="button mt-6 w-full sm:w-auto"
-        disabled={pending}
-      >
+      <button className="button mt-6 w-full sm:w-auto" disabled={pending}>
         <Send size={16} />
         {pending ? "Sending..." : "Send enquiry"}
       </button>

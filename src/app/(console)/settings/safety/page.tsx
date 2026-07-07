@@ -225,7 +225,7 @@ export default async function SafetyPage() {
                   <td className="px-5 py-4">
                     <div className="flex items-center gap-2">
                       {approval.status === "APPROVED" ? (
-                        <CheckCircle2 size={15} className="text-emerald-300" />
+                        <CheckCircle2 size={15} className="text-red-300" />
                       ) : approval.status === "REVOKED" ? (
                         <XCircle size={15} className="text-red-300" />
                       ) : (

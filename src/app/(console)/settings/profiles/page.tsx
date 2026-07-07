@@ -27,7 +27,7 @@ export default async function ScanProfilesPage() {
                 <div className="flex flex-wrap items-center gap-3">
                   <ShieldCheck className="text-signal" size={20} />
                   <h2 className="text-lg font-semibold">{policy.name}</h2>
-                  <span className="rounded-full bg-emerald-400/10 px-2.5 py-1 text-xs font-medium text-emerald-200">
+                  <span className="rounded-full bg-red-500/10 px-2.5 py-1 text-xs font-medium text-red-200">
                     {policy.mode.toLowerCase()}
                   </span>
                 </div>
@@ -119,7 +119,7 @@ function ProfileBlock({
           <span
             className={
               enabled
-                ? "rounded-full bg-emerald-400/10 px-2 py-1 text-xs text-emerald-200"
+                ? "rounded-full bg-red-500/10 px-2 py-1 text-xs text-red-200"
                 : "rounded-full bg-slate-500/10 px-2 py-1 text-xs text-slate-500"
             }
             key={label}

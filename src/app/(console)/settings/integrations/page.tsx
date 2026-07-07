@@ -85,7 +85,7 @@ export default async function IntegrationsPage() {
                     <div className="mt-2 flex flex-wrap gap-3 text-xs">
                       {delivery.scan && (
                         <Link
-                          className="text-signal hover:text-emerald-200"
+                          className="text-signal hover:text-red-200"
                           href={`/scans/${delivery.scan.id}`}
                         >
                           {delivery.scan.normalizedUrl}
@@ -93,7 +93,7 @@ export default async function IntegrationsPage() {
                       )}
                       {delivery.finding && (
                         <Link
-                          className="text-signal hover:text-emerald-200"
+                          className="text-signal hover:text-red-200"
                           href={`/findings/${delivery.finding.id}`}
                         >
                           {delivery.finding.severity}: {delivery.finding.title}
@@ -131,13 +131,13 @@ function formatDate(date: Date) {
 
 function statusClass(configured: boolean) {
   return configured
-    ? "rounded-full bg-emerald-400/10 px-2.5 py-1 text-xs font-medium text-emerald-200"
+    ? "rounded-full bg-red-500/10 px-2.5 py-1 text-xs font-medium text-red-200"
     : "rounded-full bg-amber-400/10 px-2.5 py-1 text-xs font-medium text-amber-200";
 }
 
 function deliveryClass(status: string) {
   if (status === "SENT")
-    return "rounded-full bg-emerald-400/10 px-2 py-0.5 text-[11px] text-emerald-200";
+    return "rounded-full bg-red-500/10 px-2 py-0.5 text-[11px] text-red-200";
   if (status === "FAILED")
     return "rounded-full bg-red-500/10 px-2 py-0.5 text-[11px] text-red-300";
   if (status === "SKIPPED")

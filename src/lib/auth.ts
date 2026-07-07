@@ -9,6 +9,7 @@ const publicPaths = new Set([
   "/contact",
   "/login",
   "/icon.png",
+  "/probeveil-icon-red.png",
   "/probeveil-icon.png",
 ]);
 

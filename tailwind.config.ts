@@ -6,14 +6,14 @@ export default {
   theme: {
     extend: {
       colors: {
-        ink: "#07090d",
-        panel: "#10141b",
-        line: "#222a36",
-        signal: "#7cf8c4",
-        cyan: "#5ad7ff",
+        ink: "#08090b",
+        panel: "#101114",
+        line: "#2a2d34",
+        signal: "#ef4444",
+        cyan: "#94a3b8",
       },
       fontFamily: { sans: ["Inter", "ui-sans-serif", "system-ui"] },
-      boxShadow: { glow: "0 0 40px rgba(124,248,196,.08)" },
+      boxShadow: { glow: "0 16px 40px rgba(0,0,0,.24)" },
     },
   },
   plugins: [forms],

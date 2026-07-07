@@ -5,9 +5,9 @@ export const metadata: Metadata = {
   title: { default: "Probeveil", template: "%s · Probeveil" },
   description: "Website security scan control plane",
   icons: {
-    apple: "/probeveil-icon.png",
-    icon: "/probeveil-icon.png",
-    shortcut: "/probeveil-icon.png",
+    apple: "/probeveil-icon-red.png",
+    icon: "/probeveil-icon-red.png",
+    shortcut: "/probeveil-icon-red.png",
   },
 };
 

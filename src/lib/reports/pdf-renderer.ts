@@ -23,7 +23,7 @@ const navy = [18, 28, 43] as const;
 const slate = [71, 85, 105] as const;
 const line = [210, 218, 228] as const;
 const pale = [246, 248, 251] as const;
-const green = [25, 135, 84] as const;
+const crimson = [220, 38, 38] as const;
 const amber = [180, 95, 20] as const;
 const red = [185, 28, 28] as const;
 const purple = [126, 34, 206] as const;
@@ -1200,7 +1200,7 @@ function rgb(values: readonly number[]) {
 }
 
 function chartColor(index: number) {
-  return [red, amber, green, purple, slate][index % 5];
+  return [red, amber, crimson, purple, slate][index % 5];
 }
 
 function fitFontSize(
