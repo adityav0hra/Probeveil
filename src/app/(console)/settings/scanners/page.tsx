@@ -12,6 +12,14 @@ const engineNotes: Record<string, string> = {
     "Runs passive DAST baseline checks in maximum mode when zap-baseline.py is installed.",
   "Probeveil Passive":
     "Built-in crawler and response analyzer for DNS, TLS, headers, cookies, CORS, CSP, routes and evidence.",
+  Semgrep:
+    "Runs local Semgrep rules against downloaded same-scope JavaScript assets when semgrep is installed.",
+  SSLyze:
+    "Runs TLS and certificate diagnostics when sslyze is installed on the worker.",
+  "Probeveil Nikto-style Checks":
+    "Built-in fallback checks for common web-server diagnostic, legacy and sensitive path exposures.",
+  "Probeveil Technology Checks":
+    "Built-in framework-aware review for Next.js, WordPress, Spring/OpenAPI and GraphQL surfaces.",
   "testssl.sh":
     "Runs TLS and certificate diagnostics when testssl.sh is installed on the worker.",
 };

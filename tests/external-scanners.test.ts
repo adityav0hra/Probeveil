@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   parseNucleiJsonLines,
+  parseSemgrepJson,
+  selectJavaScriptTargets,
   selectNucleiTargets,
 } from "../src/worker/external-scanners";
 
@@ -66,5 +68,64 @@ describe("external scanner adapters", () => {
         endpoints,
       ),
     ).toHaveLength(121);
+  });
+
+  it("maps Semgrep JSON results back to JavaScript asset URLs", () => {
+    const findings = parseSemgrepJson(
+      JSON.stringify({
+        results: [
+          {
+            check_id: "probeveil.javascript.eval-use",
+            extra: {
+              message: "Dynamic JavaScript execution sink requires review.",
+              severity: "WARNING",
+            },
+            path: "/tmp/source-0.js",
+            start: { line: 12 },
+          },
+        ],
+      }),
+      new Map([["/tmp/source-0.js", "https://example.com/app.js"]]),
+    );
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({
+      affectedUrl: "https://example.com/app.js",
+      scannerName: "Semgrep",
+      scannerRuleId: "probeveil.javascript.eval-use",
+      severity: "LOW",
+    });
+  });
+
+  it("selects same-scope JavaScript assets for Semgrep source hints", () => {
+    const targets = selectJavaScriptTargets(
+      {
+        mode: "FULL",
+        scanId: "scan-1",
+        token: "token",
+        url: "https://example.com",
+      },
+      [
+        {
+          contentType: "application/javascript",
+          tested: true,
+          url: "https://example.com/app.js",
+        },
+        {
+          discoveredBy: "browser-rendered:script",
+          tested: true,
+          url: "https://cdn.example.com/chunk",
+        },
+        {
+          tested: true,
+          url: "https://other.test/app.js",
+        },
+      ],
+    );
+
+    expect(targets).toEqual([
+      "https://example.com/app.js",
+      "https://cdn.example.com/chunk",
+    ]);
   });
 });

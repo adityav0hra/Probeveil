@@ -97,6 +97,39 @@ async function main() {
       kind: "DAST_BASELINE",
       capabilities: ["passive DAST", "headers", "browser-era web checks"],
     },
+    {
+      name: "SSLyze",
+      kind: "TLS_DIAGNOSTIC",
+      capabilities: ["tls posture", "certificate checks", "protocol review"],
+    },
+    {
+      name: "Semgrep",
+      kind: "SOURCE_HINTS",
+      capabilities: [
+        "downloaded JavaScript review",
+        "DOM sink hints",
+        "dynamic code execution hints",
+      ],
+    },
+    {
+      name: "Probeveil Nikto-style Checks",
+      kind: "PROBEVEIL_ACTIVE_SAFE",
+      capabilities: [
+        "diagnostic paths",
+        "legacy web-server checks",
+        "admin surface review",
+      ],
+    },
+    {
+      name: "Probeveil Technology Checks",
+      kind: "PROBEVEIL_ACTIVE_SAFE",
+      capabilities: [
+        "Next.js review",
+        "WordPress review",
+        "Spring/OpenAPI review",
+        "GraphQL review",
+      ],
+    },
   ]) {
     await prisma.scannerTool.upsert({
       where: { name: tool.name },
