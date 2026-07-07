@@ -133,9 +133,11 @@ export function ScanView({ id, initial }: { id: string; initial: Scan }) {
               {scan.mode} scan · started {formatTimestamp(scan.createdAt)}
             </p>
           </div>
-          <button
-            className="button-secondary text-red-300"
-            onClick={async () => {
+          <form
+            action={`/api/scans/${id}/cancel`}
+            method="post"
+            onSubmit={async (event) => {
+              event.preventDefault();
               setCancelling(true);
               setCancelError(null);
               try {
@@ -159,11 +161,16 @@ export function ScanView({ id, initial }: { id: string; initial: Scan }) {
                 setCancelling(false);
               }
             }}
-            disabled={cancelling}
           >
-            <StopCircle size={16} />
-            {cancelling ? "Cancelling..." : "Cancel scan"}
-          </button>
+            <button
+              className="button-secondary text-red-300"
+              disabled={cancelling}
+              type="submit"
+            >
+              <StopCircle size={16} />
+              {cancelling ? "Cancelling..." : "Cancel scan"}
+            </button>
+          </form>
         </div>
         {cancelError && (
           <div className="mt-6 rounded-lg border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-300">
