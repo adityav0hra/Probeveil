@@ -3,6 +3,7 @@ import { promises as dns } from "node:dns";
 import tls from "node:tls";
 import { assertAddressesAllowed } from "@/lib/scope";
 import { isSameOriginOrSubdomain } from "@/lib/url";
+import { runBrowserRenderedScan } from "./browser-rendered";
 import { runExternalScanners } from "./external-scanners";
 import type { FindingInput, ScanJob } from "./types";
 
@@ -170,21 +171,24 @@ const EXPOSURE_CANDIDATES: Array<{
     remediation:
       "Block version-control metadata paths and remove them from the deployed web root.",
   },
-  ...["/package-lock.json", "/yarn.lock", "/pnpm-lock.yaml", "/composer.lock"].map(
-    (path) => ({
-      path,
-      rule: "exposure/dependency-lockfile",
-      title: "Dependency lockfile is exposed",
-      category: "Information disclosure",
-      cwe: "CWE-200",
-      severity: "MEDIUM" as const,
-      confidence: "HIGH" as const,
-      impact:
-        "Lockfiles reveal exact dependency versions that can be matched against known vulnerabilities.",
-      remediation:
-        "Do not serve build and dependency metadata from the production web root.",
-    }),
-  ),
+  ...[
+    "/package-lock.json",
+    "/yarn.lock",
+    "/pnpm-lock.yaml",
+    "/composer.lock",
+  ].map((path) => ({
+    path,
+    rule: "exposure/dependency-lockfile",
+    title: "Dependency lockfile is exposed",
+    category: "Information disclosure",
+    cwe: "CWE-200",
+    severity: "MEDIUM" as const,
+    confidence: "HIGH" as const,
+    impact:
+      "Lockfiles reveal exact dependency versions that can be matched against known vulnerabilities.",
+    remediation:
+      "Do not serve build and dependency metadata from the production web root.",
+  })),
 ];
 
 type PageArtifact = {
@@ -706,6 +710,23 @@ export async function runPassive(
         technologies: [...technologies.values()],
       });
   });
+  await stage(emit, "browser-render", async () => {
+    if (!job.features?.browserRendering) return;
+    const rendered = await runBrowserRenderedScan({
+      authHeaders: authenticatedFetch.authHeaders,
+      cancelled,
+      mode: job.mode,
+      root,
+      screenshots: job.features.screenshots,
+      startUrls: [new URL(finalUrl), ...authSeedUrls],
+    });
+    endpoints.push(...rendered.endpoints);
+    findings.push(...rendered.findings);
+    for (const candidate of rendered.routeCandidates)
+      routeCandidates.set(candidate.url.toString(), candidate);
+    for (const parameter of rendered.parameters)
+      parameters.set(parameterKey(parameter), parameter);
+  });
   await stage(emit, "role-compare", async () => {
     findings.push(
       ...(await compareRoleAccess({
@@ -726,8 +747,6 @@ export async function runPassive(
         target: new URL(finalUrl),
       })),
     );
-    if (job.features?.browserRendering)
-      findings.push(browserRenderingCoverageFinding(finalUrl));
     if (job.features?.screenshots)
       findings.push(screenshotCoverageFinding(finalUrl));
   });
@@ -762,7 +781,10 @@ export async function runPassive(
           parameters.set(parameterKey(parameter), parameter);
         const detected = exposureFindingFor(candidate.probe, page);
         if (detected) findings.push(detected);
-        for (const routeCandidate of extractRouteCandidates(page.body, page.url))
+        for (const routeCandidate of extractRouteCandidates(
+          page.body,
+          page.url,
+        ))
           routeCandidates.set(routeCandidate.url.toString(), routeCandidate);
       } catch (error) {
         endpoints.push({
@@ -1578,11 +1600,12 @@ async function detectEvasionSignals({
       }),
     );
 
-  const profileObservations = await clientProfileObservations(target, root, job);
-  const profileFinding = profileDependentFinding(
-    baseline,
-    profileObservations,
+  const profileObservations = await clientProfileObservations(
+    target,
+    root,
+    job,
   );
+  const profileFinding = profileDependentFinding(baseline, profileObservations);
   if (profileFinding) findings.push(profileFinding);
 
   const rateLimitObservation = profileObservations.find(
@@ -1707,11 +1730,13 @@ function profileDependentFinding(
     contentType: baseline.contentType,
   };
   const profiles = [baselineProfile, ...observations];
-  const drift = observations.filter(
-    (item) => isMaterialProfileDrift(baselineProfile, item),
+  const drift = observations.filter((item) =>
+    isMaterialProfileDrift(baselineProfile, item),
   );
   if (!drift.length) return undefined;
-  const challengeDrift = drift.some((item) => challengeEvidenceFromProfile(item));
+  const challengeDrift = drift.some((item) =>
+    challengeEvidenceFromProfile(item),
+  );
   const evidence = profiles.map(renderProfileObservation).join("\n\n");
   return evasionFinding({
     title: challengeDrift
@@ -1925,9 +1950,9 @@ function evasionFinding({
     scannerName: "Probeveil Evasion Detector",
     scannerRuleId: rule,
     scannerVersion: "1.0.0",
-    fingerprint: createHash("sha256").update(`${rule}|${affectedUrl}`).digest(
-      "hex",
-    ),
+    fingerprint: createHash("sha256")
+      .update(`${rule}|${affectedUrl}`)
+      .digest("hex"),
     impact,
     remediation,
     reproductionSteps: [
@@ -1992,9 +2017,10 @@ function authenticatedRouteSeeds(root: URL, auth: ScanJob["auth"]) {
       if (isSameOriginOrSubdomain(url, root)) urls.push(url);
     } catch {}
   }
-  return [
-    ...new Map(urls.map((url) => [canonical(url), url])).values(),
-  ].slice(0, 60);
+  return [...new Map(urls.map((url) => [canonical(url), url])).values()].slice(
+    0,
+    60,
+  );
 }
 
 async function verifyAuthenticatedAccess({
@@ -2244,7 +2270,12 @@ async function compareRoleAccess({
 }): Promise<FindingInput[]> {
   const profiles = roleProfiles(job);
   if (profiles.length < 2) return [];
-  const targets = roleComparisonTargets(root, endpoints, authSeedUrls, job.mode);
+  const targets = roleComparisonTargets(
+    root,
+    endpoints,
+    authSeedUrls,
+    job.mode,
+  );
   if (!targets.length) return [];
 
   const findings: FindingInput[] = [];
@@ -2297,7 +2328,10 @@ function roleComparisonTargets(
       .map((endpoint) => new URL(endpoint.url)),
   ].filter((url) => isSameOriginOrSubdomain(url, root));
   const priority = candidates.filter(
-    (url) => protectedPath(url) || objectLikeRoute(url) || HIGH_VALUE_ROUTE.test(url.pathname),
+    (url) =>
+      protectedPath(url) ||
+      objectLikeRoute(url) ||
+      HIGH_VALUE_ROUTE.test(url.pathname),
   );
   const selected = priority.length ? priority : candidates;
   const limit = mode === "MAXIMUM" ? 50 : mode === "FULL" ? 25 : 10;
@@ -2317,7 +2351,8 @@ async function roleObservation(root: URL, target: URL, profile: RoleProfile) {
       length: response.body.length,
       loginOrDenied: looksLikeLoginOrDenied(response),
       profile,
-      redirectedTo: response.url === target.toString() ? undefined : response.url,
+      redirectedTo:
+        response.url === target.toString() ? undefined : response.url,
       status: response.status,
       title:
         response.body.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim() ??
@@ -2421,12 +2456,10 @@ function roleComparisonSummary(
 ): FindingInput {
   const evidence = observationsByTarget
     .slice(0, 25)
-    .map(
-      ({ target, rows }) =>
-        [
-          `target=${target.toString()}`,
-          ...rows.map(renderRoleObservation),
-        ].join("\n"),
+    .map(({ target, rows }) =>
+      [`target=${target.toString()}`, ...rows.map(renderRoleObservation)].join(
+        "\n",
+      ),
     )
     .join("\n\n");
   return {
@@ -2561,16 +2594,6 @@ function renderRoleObservation(item: RoleObservation) {
     .join(" ");
 }
 
-function browserRenderingCoverageFinding(affectedUrl: string): FindingInput {
-  return coverageModeFinding({
-    affectedUrl,
-    rule: "coverage/browser-rendering-requested",
-    title: "Browser-rendered crawling was requested",
-    detail:
-      "A browser-capable crawl profile was requested for this scan. The current worker records this requirement and prioritizes JavaScript route/API discovery signals; full screenshot-grade browser execution should be run from a browser worker.",
-  });
-}
-
 function screenshotCoverageFinding(affectedUrl: string): FindingInput {
   return coverageModeFinding({
     affectedUrl,
@@ -2605,9 +2628,9 @@ function coverageModeFinding({
     scannerName: "Probeveil Coverage Engine",
     scannerRuleId: rule,
     scannerVersion: "1.0.0",
-    fingerprint: createHash("sha256").update(`${rule}|${affectedUrl}`).digest(
-      "hex",
-    ),
+    fingerprint: createHash("sha256")
+      .update(`${rule}|${affectedUrl}`)
+      .digest("hex"),
     impact:
       "Coverage-mode findings make report readers aware of requested scanner depth and any remaining execution requirements.",
     remediation:
@@ -2635,7 +2658,10 @@ function apiCoverageFindings(endpoints: Endpoint[], root: URL): FindingInput[] {
   if (!apiRoutes.length) return [];
   const sample = apiRoutes
     .slice(0, 20)
-    .map((endpoint) => `${endpoint.method} ${endpoint.statusCode ?? "-"} ${endpoint.url}`)
+    .map(
+      (endpoint) =>
+        `${endpoint.method} ${endpoint.statusCode ?? "-"} ${endpoint.url}`,
+    )
     .join("\n");
   return [
     {
@@ -2746,7 +2772,11 @@ function dedupeReviewTasks(tasks: ReviewTask[]) {
 }
 
 function dedupeFindings(findings: FindingInput[]) {
-  return [...new Map(findings.map((finding) => [finding.fingerprint, finding])).values()];
+  return [
+    ...new Map(
+      findings.map((finding) => [finding.fingerprint, finding]),
+    ).values(),
+  ];
 }
 
 function renderObservation(item: ProbeObservation) {

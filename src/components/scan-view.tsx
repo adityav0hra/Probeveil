@@ -506,6 +506,9 @@ function buildInsight(scan: Scan) {
   const authenticatedRoutes = scan.endpoints.filter(
     (endpoint) => endpoint.discoveredBy === "authenticated-route-seed",
   ).length;
+  const browserRenderedRoutes = scan.endpoints.filter((endpoint) =>
+    endpoint.discoveredBy?.startsWith("browser-rendered"),
+  ).length;
   const manualReview = scan.findings.filter(
     (finding) => finding.confidence === "MANUAL_REVIEW",
   ).length;
@@ -584,6 +587,7 @@ function buildInsight(scan: Scan) {
       ["Sensitive fields", sensitiveParameters],
       ["Hidden candidates", hiddenRoutes],
       ["Authenticated routes", authenticatedRoutes],
+      ["Browser-rendered routes", browserRenderedRoutes],
       ["Technologies inferred", scan.technologies.length],
       ["Manual-review tasks", manualReview],
       ["Role findings", roleComparisonFindings],

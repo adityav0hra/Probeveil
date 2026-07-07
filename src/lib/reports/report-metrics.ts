@@ -34,6 +34,9 @@ export function reportMetrics(scan: ReportScanData) {
   const apiEndpoints = endpoints.filter((endpoint) =>
     /\/(?:api|graphql|rpc|rest|v[0-9])(?:\/|$|\?)/i.test(endpoint.url),
   );
+  const browserRenderedEndpoints = endpoints.filter((endpoint) =>
+    endpoint.discoveredBy?.startsWith("browser-rendered"),
+  );
   const manualReviewTasks = findings.filter(
     (finding) => finding.confidence === "MANUAL_REVIEW",
   );
@@ -92,6 +95,7 @@ export function reportMetrics(scan: ReportScanData) {
     coverageScore: scan.coverageScore ?? 0,
     failedStages: failedStages.length,
     evasionSignals: evasionSignals.length,
+    browserRenderedEndpoints: browserRenderedEndpoints.length,
     graphQlEndpoints: endpoints.filter((endpoint) =>
       /graphql/i.test(endpoint.url),
     ).length,
@@ -142,6 +146,13 @@ export function coverageRows(scan: ReportScanData) {
       area: "APIs",
       discovered: metrics.apiEndpoints,
       tested: metrics.apiEndpoints,
+      skipped: 0,
+      failed: 0,
+    },
+    {
+      area: "Browser-rendered",
+      discovered: metrics.browserRenderedEndpoints,
+      tested: metrics.browserRenderedEndpoints,
       skipped: 0,
       failed: 0,
     },

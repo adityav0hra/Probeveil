@@ -4,6 +4,7 @@ export const PASSIVE_STAGES = [
   ["surface", "Discovering attack surface"],
   ["auth-verify", "Verifying authenticated access"],
   ["crawl", "Crawling website"],
+  ["browser-render", "Rendering JavaScript surface"],
   ["role-compare", "Comparing role access"],
   ["evasion", "Detecting evasion signals"],
   ["exposure-probes", "Checking exposed sensitive files"],
