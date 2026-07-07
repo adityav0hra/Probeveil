@@ -124,6 +124,8 @@ const eventSchema = z.discriminatedUnion("type", [
   finalEvent,
 ]);
 
+const transactionOptions = { maxWait: 10_000, timeout: 30_000 };
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -162,9 +164,9 @@ export async function POST(
       }),
     ]);
   } else if (event.type === "endpoints") {
-    await db.$transaction(
-      event.endpoints.map((endpoint) =>
-        db.endpoint.upsert({
+    await db.$transaction(async (tx) => {
+      for (const endpoint of event.endpoints) {
+        await tx.endpoint.upsert({
           where: {
             scanId_url_method: {
               scanId: id,
@@ -174,71 +176,74 @@ export async function POST(
           },
           update: endpoint,
           create: { scanId: id, ...endpoint },
-        }),
-      ),
-    );
+        });
+      }
+    }, transactionOptions);
   } else if (event.type === "parameters") {
-    await db.$transaction(async (tx) => {
-      for (const parameter of event.parameters) {
-        const endpoint = await tx.endpoint.upsert({
-          where: {
-            scanId_url_method: {
+    await db.$transaction(
+      async (tx) => {
+        for (const parameter of event.parameters) {
+          const endpoint = await tx.endpoint.upsert({
+            where: {
+              scanId_url_method: {
+                scanId: id,
+                url: parameter.endpointUrl,
+                method: parameter.method,
+              },
+            },
+            update: {},
+            create: {
               scanId: id,
               url: parameter.endpointUrl,
               method: parameter.method,
+              depth: 0,
+              tested: false,
+              external: false,
+              discoveredBy: "parameter-inventory",
             },
-          },
-          update: {},
-          create: {
-            scanId: id,
-            url: parameter.endpointUrl,
-            method: parameter.method,
-            depth: 0,
-            tested: false,
-            external: false,
-            discoveredBy: "parameter-inventory",
-          },
-        });
-        await tx.parameter.upsert({
-          where: {
-            endpointId_name_location: {
+          });
+          await tx.parameter.upsert({
+            where: {
+              endpointId_name_location: {
+                endpointId: endpoint.id,
+                name: parameter.name,
+                location: parameter.location,
+              },
+            },
+            update: {
+              dataType: parameter.dataType,
+              tested: parameter.tested,
+            },
+            create: {
               endpointId: endpoint.id,
               name: parameter.name,
               location: parameter.location,
+              dataType: parameter.dataType,
+              tested: parameter.tested,
             },
-          },
-          update: {
-            dataType: parameter.dataType,
-            tested: parameter.tested,
-          },
-          create: {
-            endpointId: endpoint.id,
-            name: parameter.name,
-            location: parameter.location,
-            dataType: parameter.dataType,
-            tested: parameter.tested,
-          },
-        });
-      }
-    });
+          });
+        }
+      },
+      transactionOptions,
+    );
   } else if (event.type === "services") {
     await db.service.createMany({
       data: event.services.map((service) => ({ scanId: id, ...service })),
       skipDuplicates: true,
     });
   } else if (event.type === "technologies") {
-    await db.$transaction(
-      event.technologies.map((technology) => {
+    await db.$transaction(async (tx) => {
+      for (const technology of event.technologies) {
         const version = technology.version ?? "detected";
-        return db.technology.upsert({
+        await tx.technology.upsert({
           where: {
             scanId_name_version: { scanId: id, name: technology.name, version },
           },
           update: { ...technology, version },
           create: { scanId: id, ...technology, version },
         });
-      }),
-    );
+      }
+    }, transactionOptions);
   } else if (event.type === "findings") {
     for (const finding of event.findings) {
       const { evidence, reproductionSteps, references, ...data } = finding;
