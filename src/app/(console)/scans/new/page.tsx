@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { isScanMode, NewScanForm } from "@/components/new-scan-form";
+import { db } from "@/lib/db";
 
 export const metadata: Metadata = { title: "New Security Scan" };
 
@@ -10,6 +11,10 @@ export default async function NewScanPage({
 }) {
   const params = await searchParams;
   const initialMode = isScanMode(params.mode) ? params.mode : "FULL";
+  const profiles = await db.scanProfile.findMany({
+    orderBy: { name: "asc" },
+    where: { enabled: true },
+  });
 
   return (
     <div className="mx-auto max-w-3xl py-10 lg:py-20">
@@ -24,6 +29,20 @@ export default async function NewScanPage({
           error={params.error}
           initialMode={initialMode}
           initialUrl={params.url ?? ""}
+          profiles={profiles.map((profile) => ({
+            alertThresholds: profile.alertThresholds,
+            authConfig: profile.authConfig,
+            cadence: profile.cadence,
+            description: profile.description,
+            engines: profile.engines,
+            features: profile.features,
+            id: profile.id,
+            limits: profile.limits,
+            mode: profile.mode,
+            name: profile.name,
+            slug: profile.slug,
+            stageConfig: profile.stageConfig,
+          }))}
         />
       </section>
     </div>

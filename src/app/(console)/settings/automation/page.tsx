@@ -17,6 +17,7 @@ import {
   getNotificationEmailStatus,
   sendNotificationEmailDetailed,
 } from "@/lib/notifications/email";
+import { scanPolicyFromProfile } from "@/lib/scan-profiles";
 import { nextScheduledRun, type ScheduleCadenceValue } from "@/lib/scheduling";
 import { normalizeUrlInput, urlFingerprint } from "@/lib/url";
 
@@ -39,11 +40,12 @@ const defaults: AutomationSettings = {
 export default async function AutomationSettingsPage() {
   await requireRole(["ADMIN"]);
   const emailStatus = getNotificationEmailStatus();
-  const [settings, schedules, notifications] = await Promise.all([
+  const [settings, schedules, notifications, profiles] = await Promise.all([
     readSettings(),
     db.scanSchedule.findMany({
       include: {
         _count: { select: { notifications: true, scans: true } },
+        profile: { select: { name: true, slug: true } },
       },
       orderBy: [{ enabled: "desc" }, { nextRunAt: "asc" }],
     }),
@@ -54,6 +56,10 @@ export default async function AutomationSettingsPage() {
       },
       orderBy: { createdAt: "desc" },
       take: 12,
+    }),
+    db.scanProfile.findMany({
+      orderBy: { name: "asc" },
+      where: { enabled: true },
     }),
   ]);
 
@@ -94,35 +100,45 @@ export default async function AutomationSettingsPage() {
     "use server";
     const session = await requireRole(["ADMIN"]);
     const url = normalizeUrlInput(String(formData.get("url") ?? ""));
+    const profile = await readSelectedProfile(formData.get("profileId"));
+    const policy = profile ? scanPolicyFromProfile(profile) : null;
     const cadence = parseCadence(formData.get("cadence"));
-    const mode = parseMode(formData.get("mode"));
+    const mode = policy?.mode ?? parseMode(formData.get("mode"));
     const name =
       String(formData.get("name") ?? "").trim() || new URL(url).hostname;
     const firstRun = parseFirstRun(formData.get("nextRunAt"), cadence);
     const notificationEmail = String(
       formData.get("notificationEmail") ?? "",
     ).trim();
-    const features = {
-      apiDiscovery: formData.get("apiDiscovery") === "on",
-      browserRendering: formData.get("browserRendering") === "on",
-      screenshots: formData.get("screenshots") === "on",
-    };
+    const features =
+      policy?.features ??
+      ({
+        apiDiscovery: formData.get("apiDiscovery") === "on",
+        browserRendering: formData.get("browserRendering") === "on",
+        screenshots: formData.get("screenshots") === "on",
+      } satisfies Record<string, boolean>);
 
     const schedule = await db.scanSchedule.create({
       data: {
         cadence,
-        failedScanAlerts: formData.get("failedScanAlerts") === "on",
+        failedScanAlerts: true,
         features,
-        highSeverityAlerts: formData.get("highSeverityAlerts") === "on",
+        highSeverityAlerts: policy
+          ? policy.alertThresholds.notifyAt.includes("HIGH") ||
+            policy.alertThresholds.notifyAt.includes("CRITICAL")
+          : formData.get("highSeverityAlerts") === "on",
         mode,
         name,
-        newFindingDiffs: formData.get("newFindingDiffs") === "on",
+        newFindingDiffs: policy
+          ? policy.alertThresholds.newFindingDiffs
+          : formData.get("newFindingDiffs") === "on",
         nextRunAt: firstRun,
         normalizedHash: urlFingerprint(url),
         normalizedUrl: url,
         notificationEmail: notificationEmail || null,
         originalUrl: String(formData.get("url") ?? "").trim(),
-        summaryEmails: formData.get("summaryEmails") === "on",
+        profileId: profile?.id,
+        summaryEmails: true,
         userId: session.user.id,
       },
     });
@@ -135,6 +151,8 @@ export default async function AutomationSettingsPage() {
           nextRunAt: firstRun.toISOString(),
           normalizedUrl: url,
           notificationEmailConfigured: Boolean(notificationEmail),
+          profileId: profile?.id,
+          profileName: profile?.name,
         },
         resourceId: schedule.id,
         resourceType: "ScanSchedule",
@@ -319,6 +337,17 @@ export default async function AutomationSettingsPage() {
               />
             </label>
             <label className="block text-sm text-slate-300">
+              Scan policy
+              <select className="input mt-2" name="profileId" defaultValue="">
+                <option value="">Custom schedule</option>
+                {profiles.map((profile) => (
+                  <option key={profile.id} value={profile.id}>
+                    {profile.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm text-slate-300">
               Cadence
               <select
                 className="input mt-2"
@@ -460,6 +489,7 @@ export default async function AutomationSettingsPage() {
                     <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-500">
                       <span>{schedule.cadence.toLowerCase()}</span>
                       <span>{schedule.mode.toLowerCase()} mode</span>
+                      {schedule.profile && <span>{schedule.profile.name}</span>}
                       <span>next {formatDate(schedule.nextRunAt)}</span>
                       <span>{schedule._count.scans} scans</span>
                       <span>{schedule._count.notifications} notifications</span>
@@ -587,6 +617,12 @@ async function readSettings() {
   const row = await db.systemSetting.findUnique({ where: { key: settingKey } });
   if (!row?.value || typeof row.value !== "object") return defaults;
   return { ...defaults, ...(row.value as Partial<AutomationSettings>) };
+}
+
+async function readSelectedProfile(value: FormDataEntryValue | null) {
+  const id = typeof value === "string" ? value.trim() : "";
+  if (!id) return null;
+  return db.scanProfile.findFirst({ where: { enabled: true, id } });
 }
 
 function parseCadence(value: FormDataEntryValue | null): ScheduleCadenceValue {

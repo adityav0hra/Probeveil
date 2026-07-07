@@ -1,5 +1,6 @@
-import { PrismaClient, Role, ScanMode } from "@prisma/client";
+import { PrismaClient, Role } from "@prisma/client";
 import { hash } from "bcryptjs";
+import { defaultScanProfiles } from "../src/lib/scan-profiles";
 
 const prisma = new PrismaClient();
 
@@ -17,18 +18,38 @@ async function main() {
       passwordHash: await hash(password, 12),
     },
   });
-  for (const mode of [ScanMode.QUICK, ScanMode.FULL, ScanMode.MAXIMUM]) {
+  await prisma.scanProfile.updateMany({
+    data: { enabled: false },
+    where: { name: { in: ["quick-v1", "full-v1", "maximum-v1"] } },
+  });
+  for (const profile of defaultScanProfiles) {
     await prisma.scanProfile.upsert({
-      where: { name: `${mode.toLowerCase()}-v1` },
-      update: {},
+      where: { slug: profile.slug },
+      update: {
+        alertThresholds: profile.alertThresholds,
+        authConfig: profile.authConfig,
+        cadence: profile.cadence,
+        description: profile.description,
+        enabled: true,
+        engines: profile.engines,
+        features: profile.features,
+        limits: profile.limits,
+        mode: profile.mode,
+        name: profile.name,
+        stageConfig: profile.stageConfig,
+      },
       create: {
-        name: `${mode.toLowerCase()}-v1`,
-        mode,
-        stageConfig: { passive: true, active: mode !== ScanMode.QUICK },
-        limits: {
-          routes:
-            mode === ScanMode.QUICK ? 25 : mode === ScanMode.FULL ? 100 : 250,
-        },
+        alertThresholds: profile.alertThresholds,
+        authConfig: profile.authConfig,
+        cadence: profile.cadence,
+        description: profile.description,
+        engines: profile.engines,
+        features: profile.features,
+        limits: profile.limits,
+        mode: profile.mode,
+        name: profile.name,
+        slug: profile.slug,
+        stageConfig: profile.stageConfig,
       },
     });
   }

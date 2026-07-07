@@ -26,6 +26,7 @@ export const createScanSchema = z.object({
     .transform(Boolean),
   cookieHeader: z.string().trim().max(4000).optional().default(""),
   mode: scanModeSchema,
+  profileId: z.string().trim().max(120).optional().default(""),
   screenshotCapture: z
     .union([z.literal("on"), z.boolean()])
     .optional()

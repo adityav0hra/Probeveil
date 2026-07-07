@@ -3,6 +3,7 @@ import { ScanStatus } from "@prisma/client";
 import { requireRole } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getScanQueue } from "@/lib/queue";
+import { scanPolicyFromProfile } from "@/lib/scan-profiles";
 import { PASSIVE_STAGES } from "@/lib/stages";
 import { createScanSchema, normalizeUrlInput, urlFingerprint } from "@/lib/url";
 import { signWorkerToken } from "@/lib/worker-token";
@@ -54,14 +55,23 @@ export async function POST(request: Request) {
   }
 
   const normalizedHash = urlFingerprint(normalizedUrl);
+  const profile = parsed.data.profileId
+    ? await db.scanProfile.findFirst({
+        where: { enabled: true, id: parsed.data.profileId },
+      })
+    : null;
+  const policy = profile ? scanPolicyFromProfile(profile) : null;
+  const mode = policy?.mode ?? parsed.data.mode;
   const authHeaders = scanAuthHeaders(parsed.data);
-  const auth = scanAuthOptions(parsed.data);
+  const auth = scanAuthOptions(parsed.data, policy?.authConfig);
   const comparisonProfiles = scanComparisonProfiles(parsed.data);
-  const features = {
-    apiDiscovery: parsed.data.apiDiscovery,
-    browserRendering: parsed.data.browserRendering,
-    screenshots: parsed.data.screenshotCapture,
-  };
+  const features =
+    policy?.features ??
+    ({
+      apiDiscovery: parsed.data.apiDiscovery,
+      browserRendering: parsed.data.browserRendering,
+      screenshots: parsed.data.screenshotCapture,
+    } satisfies Record<string, boolean>);
   const duplicate = await db.scan.findFirst({
     orderBy: { createdAt: "desc" },
     where: {
@@ -88,10 +98,11 @@ export async function POST(request: Request) {
 
   const scan = await db.scan.create({
     data: {
-      mode: parsed.data.mode,
+      mode,
       normalizedHash,
       normalizedUrl,
       originalUrl: parsed.data.url.trim(),
+      profileId: profile?.id,
       stages: {
         create: PASSIVE_STAGES.map(([key, label], order) => ({
           key,
@@ -118,6 +129,23 @@ export async function POST(request: Request) {
               role: profile.role,
             })),
             features,
+            policy: policy
+              ? {
+                  alertThresholds: policy.alertThresholds,
+                  authConfig: {
+                    authenticated: policy.authConfig.authenticated,
+                    roleComparison: policy.authConfig.roleComparison,
+                    routeSeeds: policy.authConfig.routeSeeds,
+                    verificationPath: policy.authConfig.verificationPath,
+                  },
+                  engines: policy.engines,
+                  limits: policy.limits,
+                  profileId: policy.id,
+                  profileName: policy.name,
+                  profileSlug: policy.slug,
+                  stageConfig: policy.stageConfig,
+                }
+              : undefined,
           },
           reason: "Submitted scan target",
           url: normalizedUrl,
@@ -135,7 +163,7 @@ export async function POST(request: Request) {
       const job = await getScanQueue().add(
         "passive",
         {
-          mode: parsed.data.mode,
+          mode,
           auth,
           authHeaders,
           comparisonProfiles,
@@ -182,8 +210,10 @@ export async function POST(request: Request) {
             (profile) => profile.role,
           ),
           features,
-          mode: parsed.data.mode,
+          mode,
           normalizedUrl,
+          profileId: profile?.id,
+          profileName: profile?.name,
         },
         resourceId: scan.id,
         resourceType: "Scan",
@@ -210,33 +240,51 @@ export async function POST(request: Request) {
   return NextResponse.json({ id: scan.id }, { status: 201 });
 }
 
-function scanAuthHeaders(data: {
-  authHeader?: string;
-  cookieHeader?: string;
-}) {
+function scanAuthHeaders(data: { authHeader?: string; cookieHeader?: string }) {
   return {
     ...(data.authHeader ? { authorization: data.authHeader } : {}),
     ...(data.cookieHeader ? { cookie: data.cookieHeader } : {}),
   };
 }
 
-function scanAuthOptions(data: {
-  authContextName?: string;
-  authExpectedText?: string;
-  authRouteSeeds?: string;
-  authVerificationPath?: string;
-}) {
+function scanAuthOptions(
+  data: {
+    authContextName?: string;
+    authExpectedText?: string;
+    authRouteSeeds?: string;
+    authVerificationPath?: string;
+  },
+  policyAuth?: Record<string, unknown>,
+) {
+  const policyRouteSeeds = Array.isArray(policyAuth?.routeSeeds)
+    ? policyAuth.routeSeeds.filter(
+        (item): item is string => typeof item === "string",
+      )
+    : [];
+  const policyVerificationPath =
+    typeof policyAuth?.verificationPath === "string"
+      ? policyAuth.verificationPath
+      : "";
   return {
     ...(data.authContextName ? { contextName: data.authContextName } : {}),
     ...(data.authExpectedText ? { expectedText: data.authExpectedText } : {}),
-    routeSeeds: routeSeedsFromText(data.authRouteSeeds ?? ""),
-    ...(data.authVerificationPath
-      ? { verificationPath: data.authVerificationPath }
+    routeSeeds: [
+      ...new Set([
+        ...policyRouteSeeds,
+        ...routeSeedsFromText(data.authRouteSeeds ?? ""),
+      ]),
+    ].slice(0, 60),
+    ...(data.authVerificationPath || policyVerificationPath
+      ? {
+          verificationPath: data.authVerificationPath || policyVerificationPath,
+        }
       : {}),
   };
 }
 
-function scanComparisonProfiles(data: Record<string, string | boolean | undefined>) {
+function scanComparisonProfiles(
+  data: Record<string, string | boolean | undefined>,
+) {
   const profileSpecs = [
     ["normalUser", "Normal user", "NORMAL_USER"],
     ["adminUser", "Admin", "ADMIN"],
@@ -254,9 +302,7 @@ function scanComparisonProfiles(data: Record<string, string | boolean | undefine
         ? { cookie: cookieHeader }
         : {}),
     };
-    return Object.keys(authHeaders).length
-      ? [{ authHeaders, name, role }]
-      : [];
+    return Object.keys(authHeaders).length ? [{ authHeaders, name, role }] : [];
   });
 }
 

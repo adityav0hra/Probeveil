@@ -1,4 +1,8 @@
 import { ArrowRight } from "lucide-react";
+import {
+  scanPolicyFromProfile,
+  type ScanProfileLike,
+} from "@/lib/scan-profiles";
 
 const modes = [
   ["QUICK", "Quick Scan", "Fast passive scan"],
@@ -18,11 +22,14 @@ export function NewScanForm({
   error,
   initialMode = "FULL",
   initialUrl = "",
+  profiles = [],
 }: {
   error?: string;
   initialMode?: ScanMode;
   initialUrl?: string;
+  profiles?: ScanProfileLike[];
 }) {
+  const policies = profiles.map(scanPolicyFromProfile);
   return (
     <form action="/api/scans" className="mt-8 space-y-7" method="post">
       <label className="block">
@@ -39,6 +46,53 @@ export function NewScanForm({
           type="text"
         />
       </label>
+      {policies.length > 0 && (
+        <fieldset className="rounded-xl border border-line bg-white/[.015] p-4">
+          <legend className="px-2 text-sm font-medium text-slate-200">
+            Scan policy
+          </legend>
+          <select className="input mt-2" name="profileId" defaultValue="">
+            <option value="">Custom configuration</option>
+            {policies.map((policy) => (
+              <option key={policy.id} value={policy.id}>
+                {policy.name}
+              </option>
+            ))}
+          </select>
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">
+            {policies.map((policy) => (
+              <div
+                className="rounded-lg border border-line bg-black/20 p-4"
+                key={policy.id}
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-semibold text-slate-100">
+                    {policy.name}
+                  </p>
+                  <span className="rounded-full bg-emerald-400/10 px-2 py-0.5 text-[11px] font-medium text-emerald-200">
+                    {policy.mode.toLowerCase()}
+                  </span>
+                  {policy.cadence && (
+                    <span className="rounded-full bg-white/[.05] px-2 py-0.5 text-[11px] text-slate-300">
+                      {policy.cadence.toLowerCase()}
+                    </span>
+                  )}
+                </div>
+                <p className="mt-2 text-xs leading-5 text-slate-500">
+                  {policy.description}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-slate-400">
+                  <span>{policy.limits.maxRoutes} routes</span>
+                  <span>depth {policy.limits.maxDepth}</span>
+                  <span>{enabledEngineCount(policy.engines)} engines</span>
+                  {policy.authConfig.authenticated && <span>auth</span>}
+                  {policy.features.screenshots && <span>screenshots</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </fieldset>
+      )}
       <fieldset>
         <legend className="text-sm font-medium text-slate-200">
           Scan Mode
@@ -82,7 +136,11 @@ export function NewScanForm({
               className="flex items-center gap-3 rounded-lg border border-line bg-black/20 px-3 py-2 text-sm text-slate-300"
               key={name}
             >
-              <input className="size-4 accent-signal" name={name} type="checkbox" />
+              <input
+                className="size-4 accent-signal"
+                name={name}
+                type="checkbox"
+              />
               {label}
             </label>
           ))}
@@ -157,7 +215,9 @@ export function NewScanForm({
             <textarea
               className="input mt-2 min-h-28 resize-y"
               name="authRouteSeeds"
-              placeholder={"/dashboard\n/account\n/admin\n/settings\n/invoices\n/export"}
+              placeholder={
+                "/dashboard\n/account\n/admin\n/settings\n/invoices\n/export"
+              }
             />
           </label>
         </div>
@@ -216,4 +276,8 @@ export function NewScanForm({
       </button>
     </form>
   );
+}
+
+function enabledEngineCount(engines: Record<string, unknown>) {
+  return Object.values(engines).filter(Boolean).length;
 }

@@ -12,6 +12,7 @@ import {
   ScrollText,
   Settings2,
   ShieldPlus,
+  SlidersHorizontal,
 } from "lucide-react";
 import { auth, signOut } from "@/lib/auth";
 import { Logo } from "./logo";
@@ -23,6 +24,7 @@ const nav = [
   ["/attack-paths", "Attack paths", GitFork],
   ["/reports", "Reports", FileText],
   ["/contact-enquiries", "Enquiries", Inbox],
+  ["/settings/profiles", "Profiles", SlidersHorizontal],
   ["/settings/scanners", "Scanners", Settings2],
   ["/settings/automation", "Automation", BellRing],
   ["/audit", "Audit logs", ScrollText],

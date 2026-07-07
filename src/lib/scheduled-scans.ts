@@ -28,6 +28,7 @@ export async function launchScheduledScan(
     | "normalizedHash"
     | "normalizedUrl"
     | "originalUrl"
+    | "profileId"
     | "userId"
   >,
 ) {
@@ -60,6 +61,7 @@ export async function launchScheduledScan(
       normalizedHash: schedule.normalizedHash,
       normalizedUrl: schedule.normalizedUrl,
       originalUrl: schedule.originalUrl,
+      profileId: schedule.profileId,
       scheduleId: schedule.id,
       stages: {
         create: PASSIVE_STAGES.map(([key, label], order) => ({
@@ -75,6 +77,7 @@ export async function launchScheduledScan(
           kind: "PRIMARY",
           metadata: {
             features,
+            profileId: schedule.profileId,
             scheduleId: schedule.id,
             scheduled: true,
           },
@@ -137,6 +140,7 @@ export async function launchScheduledScan(
           mode: schedule.mode,
           nextRunAt: nextRunAt.toISOString(),
           normalizedUrl: schedule.normalizedUrl,
+          profileId: schedule.profileId,
           scheduleId: schedule.id,
         },
         resourceId: scan.id,

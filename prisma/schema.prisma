@@ -193,6 +193,8 @@ model Scan {
   user           User               @relation(fields: [userId], references: [id])
   scheduleId     String?
   schedule       ScanSchedule?      @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  profileId      String?
+  profile        ScanProfile?       @relation(fields: [profileId], references: [id], onDelete: SetNull)
   originalUrl    String             @db.Text
   normalizedUrl  String             @db.Text
   finalUrl       String?            @db.Text
@@ -222,6 +224,7 @@ model Scan {
 
   @@index([status, createdAt])
   @@index([normalizedHash, status])
+  @@index([profileId])
   @@index([scheduleId, createdAt])
   @@index([userId])
 }
@@ -236,6 +239,8 @@ model ScanSchedule {
   normalizedHash     String
   mode               ScanMode
   cadence            ScheduleCadence
+  profileId          String?
+  profile            ScanProfile?       @relation(fields: [profileId], references: [id], onDelete: SetNull)
   enabled            Boolean            @default(true)
   features           Json?
   notificationEmail  String?
@@ -253,6 +258,7 @@ model ScanSchedule {
 
   @@index([enabled, nextRunAt])
   @@index([normalizedHash])
+  @@index([profileId])
   @@index([userId])
 }
 
@@ -273,14 +279,23 @@ model ScanTarget {
 }
 
 model ScanProfile {
-  id          String   @id @default(cuid())
-  name        String   @unique
-  mode        ScanMode
-  stageConfig Json
-  limits      Json
-  enabled     Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id              String           @id @default(cuid())
+  name            String           @unique
+  slug            String           @unique
+  description     String?          @db.Text
+  mode            ScanMode
+  cadence         ScheduleCadence?
+  stageConfig     Json
+  limits          Json
+  features        Json
+  engines         Json
+  authConfig      Json
+  alertThresholds Json
+  enabled         Boolean          @default(true)
+  scans           Scan[]
+  schedules       ScanSchedule[]
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
 }
 
 model ScanStage {
