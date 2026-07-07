@@ -304,17 +304,7 @@ export default async function FindingPage({
             <div className="mt-4 space-y-3">
               {finding.retests.length ? (
                 finding.retests.map((retest) => (
-                  <div
-                    className="rounded-lg border border-line bg-black/20 p-3 text-sm"
-                    key={retest.id}
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-slate-300">{retest.status}</span>
-                      <span className="text-xs text-slate-600">
-                        {retest.createdAt.toLocaleString()}
-                      </span>
-                    </div>
-                  </div>
+                  <RetestCard key={retest.id} retest={retest} />
                 ))
               ) : (
                 <p className="text-sm text-slate-500">
@@ -370,6 +360,189 @@ function ReviewHistoryItem({
       ) : null}
     </div>
   );
+}
+
+function RetestCard({
+  retest,
+}: {
+  retest: {
+    completedAt: Date | null;
+    createdAt: Date;
+    id: string;
+    newEvidence: unknown;
+    previousEvidence: unknown;
+    startedAt: Date | null;
+    status: string;
+  };
+}) {
+  const before = retestBefore(retest.previousEvidence);
+  const after = retestAfter(retest.newEvidence);
+  const newScanId = after.newScanId ?? before.newScanId;
+  return (
+    <div className="rounded-lg border border-line bg-black/20 p-4 text-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <StatusPill value={retest.status} />
+          <p className="mt-2 text-xs text-slate-600">
+            Started {(retest.startedAt ?? retest.createdAt).toLocaleString()}
+            {retest.completedAt
+              ? ` · Completed ${retest.completedAt.toLocaleString()}`
+              : ""}
+          </p>
+        </div>
+        {newScanId ? (
+          <Link
+            className="text-xs font-medium text-signal hover:text-white"
+            href={`/scans/${newScanId}`}
+          >
+            Open retest scan
+          </Link>
+        ) : null}
+      </div>
+      <div className="mt-4 grid gap-3">
+        <div className="rounded-md border border-line bg-white/[.02] p-3">
+          <p className="eyebrow">Before</p>
+          <p className="mt-2 text-sm leading-6 text-slate-400">
+            {before.title ?? "Original finding evidence captured."}
+          </p>
+          <p className="mt-2 break-all text-xs text-slate-600">
+            {before.rule ?? "Rule not captured"}
+          </p>
+          {before.evidence.length ? (
+            <ul className="mt-3 space-y-1 text-xs text-slate-500">
+              {before.evidence.slice(0, 3).map((item, index) => (
+                <li key={`${item.sha256}-${index}`}>
+                  {item.title} · {item.sha256.slice(0, 12)}…
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+        <div className="rounded-md border border-line bg-white/[.02] p-3">
+          <p className="eyebrow">After</p>
+          <p className="mt-2 text-sm leading-6 text-slate-400">
+            {after.summary ??
+              "Retest scan is still running or has not produced comparison evidence yet."}
+          </p>
+          {after.matchedFindings.length ? (
+            <ul className="mt-3 space-y-2 text-xs text-slate-500">
+              {after.matchedFindings.slice(0, 3).map((item) => (
+                <li key={item.id}>
+                  <span className="text-slate-300">{item.title}</span>
+                  <br />
+                  {item.severity} · {item.confidence} ·{" "}
+                  {item.affectedUrl ?? "No affected URL"}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function retestBefore(value: unknown) {
+  if (Array.isArray(value))
+    return {
+      evidence: value
+        .map((item) => evidenceSummary(item))
+        .filter((item): item is EvidenceSummary => Boolean(item)),
+    };
+  if (!value || typeof value !== "object") return { evidence: [] };
+  const row = value as {
+    evidence?: unknown;
+    finding?: { scannerRuleId?: unknown; title?: unknown };
+    newScanId?: unknown;
+    targetUrl?: unknown;
+  };
+  return {
+    evidence: Array.isArray(row.evidence)
+      ? row.evidence
+          .map((item) => evidenceSummary(item))
+          .filter((item): item is EvidenceSummary => Boolean(item))
+      : [],
+    newScanId: typeof row.newScanId === "string" ? row.newScanId : undefined,
+    rule:
+      typeof row.finding?.scannerRuleId === "string"
+        ? row.finding.scannerRuleId
+        : undefined,
+    targetUrl: typeof row.targetUrl === "string" ? row.targetUrl : undefined,
+    title:
+      typeof row.finding?.title === "string" ? row.finding.title : undefined,
+  };
+}
+
+function retestAfter(value: unknown) {
+  if (!value || typeof value !== "object")
+    return { matchedFindings: [] as MatchedRetestFinding[] };
+  const row = value as {
+    matchedFindings?: unknown;
+    newScanId?: unknown;
+    outcome?: unknown;
+    summary?: unknown;
+  };
+  return {
+    matchedFindings: Array.isArray(row.matchedFindings)
+      ? row.matchedFindings
+          .map((item) => matchedRetestFinding(item))
+          .filter((item): item is MatchedRetestFinding => Boolean(item))
+      : [],
+    newScanId: typeof row.newScanId === "string" ? row.newScanId : undefined,
+    outcome: typeof row.outcome === "string" ? row.outcome : undefined,
+    summary: typeof row.summary === "string" ? row.summary : undefined,
+  };
+}
+
+type EvidenceSummary = {
+  sha256: string;
+  title: string;
+};
+
+type MatchedRetestFinding = {
+  affectedUrl?: string;
+  confidence: string;
+  id: string;
+  severity: string;
+  title: string;
+};
+
+function evidenceSummary(value: unknown): EvidenceSummary | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const row = value as { sha256?: unknown; title?: unknown };
+  if (typeof row.sha256 !== "string") return undefined;
+  return {
+    sha256: row.sha256,
+    title: typeof row.title === "string" ? row.title : "Evidence",
+  };
+}
+
+function matchedRetestFinding(
+  value: unknown,
+): MatchedRetestFinding | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const row = value as {
+    affectedUrl?: unknown;
+    confidence?: unknown;
+    id?: unknown;
+    severity?: unknown;
+    title?: unknown;
+  };
+  if (
+    typeof row.id !== "string" ||
+    typeof row.title !== "string" ||
+    typeof row.severity !== "string" ||
+    typeof row.confidence !== "string"
+  )
+    return undefined;
+  return {
+    affectedUrl:
+      typeof row.affectedUrl === "string" ? row.affectedUrl : undefined,
+    confidence: row.confidence,
+    id: row.id,
+    severity: row.severity,
+    title: row.title,
+  };
 }
 
 function reviewValue(value: unknown) {

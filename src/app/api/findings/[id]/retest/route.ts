@@ -39,16 +39,28 @@ export async function POST(
       303,
     );
 
+  const previousEvidence = {
+    finding: {
+      affectedUrl: finding.affectedUrl,
+      fingerprint: finding.fingerprint,
+      id: finding.id,
+      scannerRuleId: finding.scannerRuleId,
+      title: finding.title,
+    },
+    evidence: finding.evidence.map((item) => ({
+      content: item.content?.slice(0, 4000),
+      sha256: item.sha256,
+      title: item.title,
+      type: item.type,
+    })),
+  };
   const retest = await db.retest.create({
     data: {
       findingId: finding.id,
-      previousEvidence: finding.evidence.map((item) => ({
-        sha256: item.sha256,
-        title: item.title,
-        type: item.type,
-      })),
+      startedAt: new Date(),
+      previousEvidence,
       scanId: finding.scanId,
-      status: "QUEUED",
+      status: "RUNNING",
     },
   });
   const scan = await db.scan.create({
@@ -110,6 +122,16 @@ export async function POST(
     db.workerJob.create({
       data: { queueJobId, scanId: scan.id, status: "QUEUED", workerType },
     }),
+    db.retest.update({
+      where: { id: retest.id },
+      data: {
+        previousEvidence: {
+          ...previousEvidence,
+          newScanId: scan.id,
+          targetUrl,
+        },
+      },
+    }),
     db.auditLog.create({
       data: {
         action: "FINDING_RETEST_CREATED",
@@ -128,7 +150,7 @@ export async function POST(
   if (workerType === "SERVERLESS_PASSIVE_HTTP")
     schedulePassiveWorkerKick(request, scan.id, token);
 
-  return NextResponse.redirect(new URL(`/scans/${scan.id}`, request.url), 303);
+  return NextResponse.redirect(new URL(`/findings/${id}`, request.url), 303);
 }
 
 function shouldUseBullMq() {
@@ -142,7 +164,11 @@ function shouldUseBullMq() {
   );
 }
 
-function schedulePassiveWorkerKick(request: Request, scanId: string, token: string) {
+function schedulePassiveWorkerKick(
+  request: Request,
+  scanId: string,
+  token: string,
+) {
   const url = new URL(`/api/internal/workers/passive/${scanId}`, request.url);
   after(async () => {
     try {

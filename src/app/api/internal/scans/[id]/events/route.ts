@@ -326,6 +326,7 @@ export async function POST(
         },
       },
     });
+    await markTargetedRetestScanFailed(id, event.error ?? "Worker failed");
   } else {
     const [findings, stages, endpointCount, tested] = await Promise.all([
       db.finding.findMany({
@@ -366,6 +367,202 @@ export async function POST(
         },
       },
     });
+    await evaluateTargetedRetest(id);
   }
   return NextResponse.json({ ok: true });
+}
+
+async function markTargetedRetestScanFailed(scanId: string, error: string) {
+  const retestTarget = await db.scanTarget.findFirst({
+    where: { scanId, kind: "RETEST" },
+  });
+  const metadata = retestMetadata(retestTarget?.metadata);
+  if (!metadata) return;
+  await db.retest.updateMany({
+    where: { id: metadata.retestId },
+    data: {
+      completedAt: new Date(),
+      newEvidence: {
+        comparedAt: new Date().toISOString(),
+        error,
+        newScanId: scanId,
+        outcome: "ERROR",
+        summary:
+          "The targeted retest scan failed before Probeveil could determine whether the finding disappeared.",
+      },
+      status: "FAILED",
+    },
+  });
+}
+
+async function evaluateTargetedRetest(scanId: string) {
+  const retestTarget = await db.scanTarget.findFirst({
+    where: { scanId, kind: "RETEST" },
+  });
+  const metadata = retestMetadata(retestTarget?.metadata);
+  if (!metadata) return;
+
+  const [retest, originalFinding, retestScan] = await Promise.all([
+    db.retest.findUnique({ where: { id: metadata.retestId } }),
+    db.finding.findUnique({
+      where: { id: metadata.originalFindingId },
+      include: { evidence: true },
+    }),
+    db.scan.findUnique({
+      where: { id: scanId },
+      include: {
+        findings: {
+          include: { evidence: true },
+          orderBy: [{ severity: "asc" }, { detectedAt: "desc" }],
+        },
+      },
+    }),
+  ]);
+  if (!retest || !originalFinding || !retestScan) return;
+
+  const matched = retestScan.findings.filter((finding) =>
+    retestFindingMatches(originalFinding, finding),
+  );
+  const passed = matched.length === 0;
+  const newEvidence = {
+    comparedAt: new Date().toISOString(),
+    newScanId: scanId,
+    targetUrl: retestTarget?.url,
+    outcome: passed ? "PASSED" : "FAILED",
+    rule: originalFinding.scannerRuleId,
+    originalFinding: {
+      id: originalFinding.id,
+      title: originalFinding.title,
+      affectedUrl: originalFinding.affectedUrl,
+      fingerprint: originalFinding.fingerprint,
+      scannerRuleId: originalFinding.scannerRuleId,
+      evidence: originalFinding.evidence.map((item) => ({
+        title: item.title,
+        type: item.type,
+        sha256: item.sha256,
+        content: item.content?.slice(0, 4000),
+      })),
+    },
+    matchedFindings: matched.map((finding) => ({
+      id: finding.id,
+      title: finding.title,
+      severity: finding.severity,
+      confidence: finding.confidence,
+      affectedUrl: finding.affectedUrl,
+      fingerprint: finding.fingerprint,
+      scannerRuleId: finding.scannerRuleId,
+      evidence: finding.evidence.map((item) => ({
+        title: item.title,
+        type: item.type,
+        sha256: item.sha256,
+        content: item.content?.slice(0, 4000),
+      })),
+    })),
+    summary: passed
+      ? "No matching finding was reproduced in the targeted retest scan."
+      : `${matched.length} matching finding${matched.length === 1 ? "" : "s"} reproduced in the targeted retest scan.`,
+  };
+  const previousStatus = originalFinding.status;
+  const nextStatus = passed ? "RETEST_PASSED" : "RETEST_FAILED";
+
+  await db.$transaction([
+    db.retest.update({
+      where: { id: retest.id },
+      data: {
+        completedAt: new Date(),
+        newEvidence: newEvidence as Prisma.InputJsonValue,
+        status: passed ? "PASSED" : "FAILED",
+      },
+    }),
+    db.finding.update({
+      where: { id: originalFinding.id },
+      data: {
+        status: nextStatus,
+      },
+    }),
+    db.findingReview.create({
+      data: {
+        action: nextStatus,
+        explanation: newEvidence.summary,
+        findingId: originalFinding.id,
+        newValue: {
+          newEvidence,
+          retestId: retest.id,
+          status: nextStatus,
+        } as Prisma.InputJsonValue,
+        previousValue: {
+          status: previousStatus,
+        },
+        userId: retestScan.userId,
+      },
+    }),
+    db.auditLog.create({
+      data: {
+        action: "FINDING_RETEST_EVALUATED",
+        metadata: {
+          matchedFindings: matched.length,
+          newScanId: scanId,
+          outcome: passed ? "PASSED" : "FAILED",
+          retestId: retest.id,
+        },
+        resourceId: originalFinding.id,
+        resourceType: "Finding",
+        userId: retestScan.userId,
+      },
+    }),
+  ]);
+}
+
+function retestMetadata(value: unknown) {
+  if (!value || typeof value !== "object") return undefined;
+  const data = value as {
+    originalFindingId?: unknown;
+    retestId?: unknown;
+    scannerRuleId?: unknown;
+  };
+  if (
+    typeof data.originalFindingId !== "string" ||
+    typeof data.retestId !== "string"
+  )
+    return undefined;
+  return {
+    originalFindingId: data.originalFindingId,
+    retestId: data.retestId,
+    scannerRuleId:
+      typeof data.scannerRuleId === "string" ? data.scannerRuleId : undefined,
+  };
+}
+
+function retestFindingMatches(
+  original: {
+    affectedUrl: string | null;
+    fingerprint: string;
+    scannerRuleId: string;
+    title: string;
+  },
+  candidate: {
+    affectedUrl: string | null;
+    fingerprint: string;
+    scannerRuleId: string;
+    title: string;
+  },
+) {
+  if (candidate.fingerprint === original.fingerprint) return true;
+  if (candidate.scannerRuleId !== original.scannerRuleId) return false;
+  const originalPath = comparablePath(original.affectedUrl);
+  const candidatePath = comparablePath(candidate.affectedUrl);
+  if (originalPath && candidatePath && originalPath === candidatePath)
+    return true;
+  return candidate.title === original.title && !originalPath && !candidatePath;
+}
+
+function comparablePath(value: string | null) {
+  if (!value) return "";
+  try {
+    const url = new URL(value);
+    url.hash = "";
+    return `${url.hostname}${url.pathname}${url.search}`;
+  } catch {
+    return value;
+  }
 }
