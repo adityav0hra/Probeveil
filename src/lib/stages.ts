@@ -15,6 +15,7 @@ export const PASSIVE_STAGES = [
   ["cors", "Testing CORS"],
   ["csp", "Testing CSP"],
   ["adaptive-differential", "Running adaptive differential probes"],
+  ["api-specific", "Testing API-specific controls"],
   ["manual-review", "Prioritising manual review"],
   ["external-scanners", "Running external scanners"],
   ["passive", "Running passive scanning"],

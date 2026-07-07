@@ -926,6 +926,23 @@ export async function runPassive(
       });
     }
   });
+  await stage(emit, "api-specific", async () => {
+    if (!job.features?.apiDiscovery) return;
+    const result = await runApiSpecificTesting({
+      authHeaders: authenticatedFetch.authHeaders,
+      cancelled,
+      endpoints: dedupeEndpoints(endpoints),
+      mode: job.mode,
+      root,
+    });
+    endpoints.push(...result.endpoints);
+    findings.push(...result.findings);
+    reviewTasks.push(...result.reviewTasks);
+    for (const candidate of result.routeCandidates)
+      routeCandidates.set(candidate.url.toString(), candidate);
+    for (const parameter of result.parameters)
+      parameters.set(parameterKey(parameter), parameter);
+  });
   await stage(emit, "manual-review", async () => {
     if (job.authHeaders && Object.keys(job.authHeaders).length)
       findings.push(
@@ -2700,6 +2717,770 @@ function apiCoverageFindings(endpoints: Endpoint[], root: URL): FindingInput[] {
       ],
     },
   ];
+}
+
+type ApiSpecificResult = {
+  endpoints: Endpoint[];
+  findings: FindingInput[];
+  parameters: ParameterInput[];
+  reviewTasks: ReviewTask[];
+  routeCandidates: Array<{ url: URL; source: string }>;
+};
+
+type ApiSchemaOperation = {
+  method: string;
+  parameters: ParameterInput[];
+  requestFields: string[];
+  url: URL;
+};
+
+type OpenApiSpec = {
+  openapi?: string;
+  swagger?: string;
+  paths?: Record<string, Record<string, unknown>>;
+  components?: { schemas?: Record<string, unknown> };
+  definitions?: Record<string, unknown>;
+};
+
+async function runApiSpecificTesting({
+  authHeaders,
+  cancelled,
+  endpoints,
+  mode,
+  root,
+}: {
+  authHeaders: Record<string, string>;
+  cancelled: () => Promise<boolean>;
+  endpoints: Endpoint[];
+  mode: ScanJob["mode"];
+  root: URL;
+}): Promise<ApiSpecificResult> {
+  const result: ApiSpecificResult = {
+    endpoints: [],
+    findings: [],
+    parameters: [],
+    reviewTasks: [],
+    routeCandidates: [],
+  };
+  const schemaOperations: ApiSchemaOperation[] = [];
+  const specs = await discoverOpenApiSpecs(root, authHeaders, mode, cancelled);
+  for (const spec of specs) {
+    result.endpoints.push(spec.endpoint);
+    result.findings.push(openApiSchemaFinding(root, spec.url, spec.spec));
+    const extracted = openApiOperations(root, spec.spec);
+    schemaOperations.push(...extracted);
+    for (const operation of extracted) {
+      result.endpoints.push({
+        url: operation.url.toString(),
+        method: operation.method,
+        depth: 1,
+        tested: false,
+        external: false,
+        discoveredBy: "openapi-schema",
+      });
+      result.routeCandidates.push({
+        url: operation.url,
+        source: "openapi-schema",
+      });
+      result.parameters.push(...operation.parameters);
+      const task = massAssignmentReviewTask(operation);
+      if (task) result.reviewTasks.push(task);
+    }
+  }
+
+  const apiTargets = apiSpecificTargets(
+    root,
+    [...endpoints, ...result.endpoints],
+    schemaOperations,
+    mode,
+  );
+  const graphQlTargets = apiTargets.filter((target) =>
+    /graphql/i.test(target.pathname),
+  );
+  for (const target of graphQlTargets) {
+    await ensureRunning(cancelled);
+    const observations = await graphqlDeepProbe(target, root, authHeaders);
+    result.findings.push(graphQlDeepFinding(root, target, observations));
+    const task = graphQlReviewTask(target, observations);
+    if (task) result.reviewTasks.push(task);
+  }
+
+  const restTargets = apiTargets
+    .filter((target) => !/graphql/i.test(target.pathname))
+    .slice(0, mode === "QUICK" ? 8 : mode === "FULL" ? 18 : 40);
+  for (const target of restTargets) {
+    await ensureRunning(cancelled);
+    const authFinding = await apiAuthHeaderComparison(
+      target,
+      root,
+      authHeaders,
+    );
+    if (authFinding) result.findings.push(authFinding);
+
+    const parameterObservations = await apiParameterFuzzing(
+      target,
+      root,
+      authHeaders,
+    );
+    const parameterFinding = apiParameterFuzzingFinding(
+      target,
+      parameterObservations,
+    );
+    if (parameterFinding) result.findings.push(parameterFinding);
+
+    const exportFinding = await paginationExportFinding(
+      target,
+      root,
+      authHeaders,
+    );
+    if (exportFinding) result.findings.push(exportFinding);
+  }
+
+  result.findings.unshift(
+    apiSpecificSummaryFinding({
+      apiTargets,
+      graphQlTargets,
+      root,
+      schemaOperations,
+      specs,
+    }),
+  );
+  return {
+    ...result,
+    findings: dedupeFindings(result.findings).slice(0, 120),
+    parameters: [
+      ...new Map(
+        result.parameters.map((parameter) => [
+          parameterKey(parameter),
+          parameter,
+        ]),
+      ).values(),
+    ].slice(0, 1000),
+    routeCandidates: dedupeCandidates(result.routeCandidates).slice(0, 500),
+  };
+}
+
+async function discoverOpenApiSpecs(
+  root: URL,
+  authHeaders: Record<string, string>,
+  mode: ScanJob["mode"],
+  cancelled: () => Promise<boolean>,
+) {
+  const paths = [
+    "/openapi.json",
+    "/swagger.json",
+    "/api-docs",
+    "/api-docs/swagger.json",
+    "/v3/api-docs",
+    "/v2/api-docs",
+    "/docs/openapi.json",
+    "/swagger/v1/swagger.json",
+    "/swagger/doc.json",
+    "/.well-known/openapi.json",
+  ].slice(0, mode === "QUICK" ? 4 : mode === "FULL" ? 8 : 10);
+  const specs: Array<{ endpoint: Endpoint; spec: OpenApiSpec; url: URL }> = [];
+  for (const path of paths) {
+    await ensureRunning(cancelled);
+    const url = new URL(path, root);
+    try {
+      const response = await safeFetch(url, root, { authHeaders });
+      specs.push({
+        endpoint: {
+          ...endpoint(
+            response.url,
+            response.status,
+            response.contentType,
+            1,
+            true,
+            "openapi-discovery",
+            response.body,
+          ),
+          external: false,
+        },
+        spec: parseOpenApiSpec(response),
+        url: new URL(response.url),
+      });
+    } catch {}
+  }
+  return specs.filter((item) => item.spec.paths);
+}
+
+function parseOpenApiSpec(response: SafeResponse): OpenApiSpec {
+  if (
+    response.status >= 400 ||
+    !/json|yaml|text/i.test(response.contentType ?? "")
+  )
+    return {};
+  try {
+    const parsed = JSON.parse(response.body) as OpenApiSpec;
+    if (parsed && typeof parsed === "object" && parsed.paths) return parsed;
+  } catch {}
+  return {};
+}
+
+function openApiOperations(root: URL, spec: OpenApiSpec) {
+  const operations: ApiSchemaOperation[] = [];
+  for (const [path, methods] of Object.entries(spec.paths ?? {})) {
+    if (!path.startsWith("/") || !methods || typeof methods !== "object")
+      continue;
+    for (const [method, operation] of Object.entries(methods)) {
+      if (!/^(get|post|put|patch|delete|head|options)$/i.test(method)) continue;
+      const url = openApiPathUrl(root, path);
+      const parameters = openApiParameters(url, method, operation);
+      operations.push({
+        method: method.toUpperCase(),
+        parameters,
+        requestFields: openApiRequestFields(operation),
+        url,
+      });
+    }
+  }
+  return operations.slice(0, 500);
+}
+
+function openApiPathUrl(root: URL, path: string) {
+  const normalized = path.replace(/\{([^}]+)\}/g, (_match, name: string) =>
+    /id|uuid|tenant|owner|account|user|invoice|order/i.test(name)
+      ? "1"
+      : "probeveil",
+  );
+  return new URL(normalized, root);
+}
+
+function openApiParameters(url: URL, method: string, operation: unknown) {
+  const parameters: ParameterInput[] = [];
+  const rows = Array.isArray((operation as { parameters?: unknown }).parameters)
+    ? ((operation as { parameters: unknown[] }).parameters ?? [])
+    : [];
+  for (const row of rows) {
+    if (!row || typeof row !== "object") continue;
+    const item = row as {
+      in?: string;
+      name?: string;
+      schema?: { type?: string; format?: string };
+    };
+    if (!item.name) continue;
+    parameters.push({
+      endpointUrl: stripSearch(url).toString(),
+      method: method.toUpperCase(),
+      name: item.name,
+      location: item.in || "unknown",
+      dataType:
+        item.schema?.format || item.schema?.type || inferDataType(item.name),
+      tested: false,
+    });
+  }
+  return parameters;
+}
+
+function openApiRequestFields(operation: unknown) {
+  const body = JSON.stringify(
+    (operation as { requestBody?: unknown }).requestBody ?? {},
+  );
+  return suspiciousVariables(body);
+}
+
+function massAssignmentReviewTask(operation: ApiSchemaOperation) {
+  const sensitive = operation.requestFields.filter(isSensitiveParameter);
+  if (!sensitive.length || !/^(POST|PUT|PATCH)$/i.test(operation.method))
+    return undefined;
+  return {
+    title: `Review mass assignment controls for ${operation.method} ${operation.url.pathname}`,
+    url: operation.url.toString(),
+    reason:
+      "OpenAPI request schemas expose sensitive-looking writable fields. These fields often require server-side allowlists because clients can submit properties hidden from the UI.",
+    priority: "MEDIUM" as const,
+    variables: sensitive,
+    evidence: [
+      `method=${operation.method}`,
+      `endpoint=${operation.url.toString()}`,
+      `sensitive_request_fields=${sensitive.join(", ")}`,
+      "Probeveil did not mutate this route automatically; replay with approved test data and verify role, ownership and immutable server-managed fields are ignored or rejected.",
+    ].join("\n"),
+  };
+}
+
+function apiSpecificTargets(
+  root: URL,
+  endpoints: Endpoint[],
+  schemaOperations: ApiSchemaOperation[],
+  mode: ScanJob["mode"],
+) {
+  const urls = [
+    ...endpoints
+      .filter((endpoint) => !endpoint.external)
+      .filter(
+        (endpoint) =>
+          /\/(?:api|graphql|rpc|rest|v[0-9]|export|download)(?:\/|$|\?)/i.test(
+            endpoint.url,
+          ) || /json|graphql/i.test(endpoint.contentType ?? ""),
+      )
+      .map((endpoint) => new URL(endpoint.url)),
+    ...schemaOperations
+      .filter((operation) =>
+        ["GET", "HEAD", "OPTIONS"].includes(operation.method),
+      )
+      .map((operation) => operation.url),
+  ].filter((url) => isSameOriginOrSubdomain(url, root));
+  const priority = urls.filter(
+    (url) =>
+      /\/(?:api|graphql|export|download|admin|users?|accounts?|invoices?|orders?|search)(?:\/|$|\?)/i.test(
+        url.pathname,
+      ) || url.searchParams.size > 0,
+  );
+  const selected = priority.length ? priority : urls;
+  const limit = mode === "QUICK" ? 12 : mode === "FULL" ? 30 : 70;
+  return [
+    ...new Map(selected.map((url) => [canonical(url), url])).values(),
+  ].slice(0, limit);
+}
+
+async function graphqlDeepProbe(
+  url: URL,
+  root: URL,
+  authHeaders: Record<string, string>,
+) {
+  const base = await graphqlProbe(url, root, authHeaders);
+  const probes: Array<{ label: string; body: string }> = [
+    {
+      label: "graphql-alias-duplication",
+      body: JSON.stringify({
+        query:
+          "query ProbeveilAliasProbe { a: __typename b: __typename c: __typename }",
+      }),
+    },
+    {
+      label: "graphql-batched-array",
+      body: JSON.stringify([
+        { query: "query ProbeveilBatchA { __typename }" },
+        { query: "query ProbeveilBatchB { __typename }" },
+      ]),
+    },
+  ];
+  const observations = [...base];
+  for (const probe of probes) {
+    try {
+      const response = await safeFetch(url, root, {
+        authHeaders,
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+        },
+        body: probe.body,
+      });
+      observations.push({
+        label: probe.label,
+        url: url.toString(),
+        method: "POST",
+        status: response.status,
+        contentType: response.contentType,
+        length: response.body.length,
+        cache: response.headers["cache-control"],
+        setCookie: response.cookies.length > 0,
+      });
+    } catch (error) {
+      observations.push({
+        label: probe.label,
+        url: url.toString(),
+        method: "POST",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return observations;
+}
+
+function graphQlDeepFinding(
+  root: URL,
+  target: URL,
+  observations: ProbeObservation[],
+) {
+  const introspection = observations.find(
+    (item) =>
+      item.label === "graphql-introspection-type" &&
+      item.status &&
+      item.status < 400,
+  );
+  const batching = observations.find(
+    (item) =>
+      item.label === "graphql-batched-array" &&
+      item.status &&
+      item.status < 400,
+  );
+  return apiFinding({
+    affectedUrl: target.toString(),
+    content: observations.map(renderObservation).join("\n\n"),
+    confidence: introspection || batching ? "HIGH" : "INFORMATIONAL",
+    description:
+      "Probeveil ran safe GraphQL checks for typename access, introspection shape, alias duplication and batched query handling.",
+    impact: introspection
+      ? "GraphQL schema detail can reveal object types, fields and mutations that need resolver-level authorization review."
+      : "GraphQL endpoints commonly require resolver-level authorization, depth/complexity limits, batching controls and variable validation.",
+    remediation:
+      "Restrict introspection where appropriate, enforce resolver-level authorization, configure query depth/complexity limits, and review batched request handling.",
+    root,
+    rule: "api/graphql-deep-checks",
+    severity: introspection ? "LOW" : "INFO",
+    title: introspection
+      ? "GraphQL introspection or batching responded"
+      : "GraphQL deeper checks were performed",
+  });
+}
+
+function graphQlReviewTask(target: URL, observations: ProbeObservation[]) {
+  const interesting = observations.some(
+    (item) =>
+      item.status &&
+      item.status < 400 &&
+      /introspection|batched|alias/i.test(item.label),
+  );
+  if (!interesting) return undefined;
+  return {
+    title: `Review GraphQL authorization and query controls ${target.pathname}`,
+    url: target.toString(),
+    reason:
+      "Safe GraphQL probes received successful responses for schema, alias or batching patterns. The main risk is usually resolver authorization, object ownership, query depth and batch amplification rather than route reachability.",
+    priority: "MEDIUM" as const,
+    variables: ["__schema", "__typename", "alias", "batch"],
+    evidence: observations.map(renderObservation).join("\n\n"),
+  };
+}
+
+async function apiAuthHeaderComparison(
+  target: URL,
+  root: URL,
+  authHeaders: Record<string, string>,
+) {
+  if (!Object.keys(authHeaders).length) return undefined;
+  const observations: ProbeObservation[] = [];
+  const cases: Array<{
+    authHeaders?: Record<string, string>;
+    label: string;
+  }> = [
+    { label: "anonymous" },
+    { authHeaders, label: "authenticated" },
+    {
+      authHeaders: {
+        authorization: "Bearer probeveil-invalid-token",
+      },
+      label: "invalid-bearer",
+    },
+  ];
+  for (const item of cases) {
+    try {
+      const response = await safeFetch(target, root, {
+        authHeaders: item.authHeaders ?? {},
+        headers: { accept: "application/json,text/plain,*/*" },
+      });
+      observations.push({
+        label: item.label,
+        url: target.toString(),
+        method: "GET",
+        status: response.status,
+        contentType: response.contentType,
+        location: response.headers.location,
+        length: response.body.length,
+        cache: response.headers["cache-control"],
+        setCookie: response.cookies.length > 0,
+      });
+    } catch (error) {
+      observations.push({
+        label: item.label,
+        url: target.toString(),
+        method: "GET",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  const authenticated = observations.find(
+    (item) => item.label === "authenticated",
+  );
+  const anonymous = observations.find((item) => item.label === "anonymous");
+  const invalid = observations.find((item) => item.label === "invalid-bearer");
+  if (
+    authenticated?.status &&
+    authenticated.status < 400 &&
+    invalid?.status &&
+    invalid.status < 400 &&
+    /authorization/i.test(Object.keys(authHeaders).join(","))
+  )
+    return apiFinding({
+      affectedUrl: target.toString(),
+      content: observations.map(renderObservation).join("\n\n"),
+      confidence: "PROBABLE",
+      description:
+        "An API endpoint returned a successful response to an invalid bearer token while an authenticated context was configured.",
+      impact:
+        "Bearer-token parsing or fallback behavior may allow requests with malformed credentials to reach protected API handlers.",
+      remediation:
+        "Reject malformed or invalid Authorization headers before route handlers run and avoid falling back to anonymous behavior on protected API routes.",
+      root,
+      rule: "api/auth-header-invalid-token-success",
+      severity: "MEDIUM",
+      title: "Invalid bearer token received successful API response",
+    });
+  if (
+    authenticated?.status &&
+    authenticated.status < 400 &&
+    anonymous?.status &&
+    anonymous.status < 400 &&
+    protectedPath(target)
+  )
+    return apiFinding({
+      affectedUrl: target.toString(),
+      content: observations.map(renderObservation).join("\n\n"),
+      confidence: "MANUAL_REVIEW",
+      description:
+        "Anonymous and authenticated requests both reached an API route that looks protected or account-related.",
+      impact:
+        "The route may be intentionally public, or it may expose user, account, export or administrative data without authentication.",
+      remediation:
+        "Confirm whether anonymous access is intended. Enforce authentication and object-level authorization for private API resources.",
+      root,
+      rule: "api/auth-header-anonymous-protected-success",
+      severity: "MEDIUM",
+      title: "Anonymous API access needs review",
+    });
+  return undefined;
+}
+
+async function apiParameterFuzzing(
+  target: URL,
+  root: URL,
+  authHeaders: Record<string, string>,
+) {
+  if (!target.searchParams.size) return [];
+  return differentialProbe(target, root, authHeaders);
+}
+
+function apiParameterFuzzingFinding(
+  target: URL,
+  observations: ProbeObservation[],
+) {
+  if (!observations.length) return undefined;
+  const interesting = analyseDifferential(observations);
+  if (!interesting) return undefined;
+  return apiFinding({
+    affectedUrl: target.toString(),
+    content: observations.map(renderObservation).join("\n\n"),
+    confidence: "MANUAL_REVIEW",
+    description:
+      "REST query parameter variants produced materially different response behavior.",
+    impact: interesting,
+    remediation:
+      "Normalize duplicate, array-shaped and type-shifted parameters consistently before authorization, caching and business logic checks.",
+    root: new URL(target.origin),
+    rule: "api/rest-parameter-fuzzing-drift",
+    severity: "LOW",
+    title: "REST parameter handling needs review",
+  });
+}
+
+async function paginationExportFinding(
+  target: URL,
+  root: URL,
+  authHeaders: Record<string, string>,
+) {
+  if (
+    !/\/(?:api|export|download|search|reports?|invoices?|orders?)(?:\/|$|\?)/i.test(
+      target.pathname,
+    )
+  )
+    return undefined;
+  const variants = [
+    withParam(target, "limit", "1000"),
+    withParam(target, "per_page", "1000"),
+    withParam(target, "page[size]", "1000"),
+    withParam(target, "format", "csv"),
+    withParam(target, "download", "1"),
+  ];
+  const observations: ProbeObservation[] = [];
+  for (const variant of variants) {
+    try {
+      const response = await safeFetch(variant, root, {
+        authHeaders,
+        headers: { accept: "application/json,text/csv,*/*" },
+      });
+      observations.push({
+        label: `pagination-export:${[...variant.searchParams.entries()].at(-1)?.join("=") ?? "variant"}`,
+        url: variant.toString(),
+        method: "GET",
+        status: response.status,
+        contentType: response.contentType,
+        length: response.body.length,
+        cache: response.headers["cache-control"],
+        setCookie: response.cookies.length > 0,
+      });
+    } catch (error) {
+      observations.push({
+        label: "pagination-export:error",
+        url: variant.toString(),
+        method: "GET",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  const exportLike = observations.find(
+    (item) =>
+      item.status &&
+      item.status < 400 &&
+      /csv|octet-stream|spreadsheet|zip|json/i.test(item.contentType ?? "") &&
+      /format=csv|download=1/i.test(item.url),
+  );
+  const highVolume = observations.find(
+    (item) => item.status && item.status < 400 && (item.length ?? 0) > 250_000,
+  );
+  if (!exportLike && !highVolume) return undefined;
+  return apiFinding({
+    affectedUrl: target.toString(),
+    content: observations.map(renderObservation).join("\n\n"),
+    confidence: "MANUAL_REVIEW",
+    description:
+      "Pagination/export-style API parameters returned a successful large or export-like response.",
+    impact:
+      "Export and high-limit pagination paths often bypass row-level authorization, field filtering, rate limits or audit expectations.",
+    remediation:
+      "Enforce per-user authorization on every exported row and field, cap page sizes, require explicit export permission and audit bulk downloads.",
+    root,
+    rule: "api/pagination-export-review",
+    severity: "MEDIUM",
+    title: "Pagination or export API behavior needs review",
+  });
+}
+
+function openApiSchemaFinding(root: URL, specUrl: URL, spec: OpenApiSpec) {
+  const operations = openApiOperations(root, spec);
+  return apiFinding({
+    affectedUrl: specUrl.toString(),
+    content: [
+      `schema=${spec.openapi ? `OpenAPI ${spec.openapi}` : spec.swagger ? `Swagger ${spec.swagger}` : "OpenAPI/Swagger"}`,
+      `paths=${Object.keys(spec.paths ?? {}).length}`,
+      `operations=${operations.length}`,
+      "",
+      operations
+        .slice(0, 30)
+        .map(
+          (operation) =>
+            `${operation.method} ${operation.url.pathname} params=${operation.parameters.map((parameter) => parameter.name).join(",") || "none"} request_fields=${operation.requestFields.join(",") || "none"}`,
+        )
+        .join("\n"),
+    ].join("\n"),
+    confidence: "HIGH",
+    description:
+      "Probeveil discovered an OpenAPI/Swagger schema and imported route, method and parameter coverage from it.",
+    impact:
+      "Schemas reveal API routes, parameters and writable fields that may not appear in browser crawling.",
+    remediation:
+      "Keep public schemas intentional, remove private operations from public docs, and use the imported route inventory for role and object-ownership testing.",
+    root,
+    rule: "api/openapi-schema-discovered",
+    severity: "INFO",
+    title: "OpenAPI/Swagger schema discovered",
+  });
+}
+
+function apiSpecificSummaryFinding({
+  apiTargets,
+  graphQlTargets,
+  root,
+  schemaOperations,
+  specs,
+}: {
+  apiTargets: URL[];
+  graphQlTargets: URL[];
+  root: URL;
+  schemaOperations: ApiSchemaOperation[];
+  specs: Array<{ endpoint: Endpoint; spec: OpenApiSpec; url: URL }>;
+}) {
+  return apiFinding({
+    affectedUrl: root.toString(),
+    content: [
+      `openapi_specs=${specs.length}`,
+      `schema_operations=${schemaOperations.length}`,
+      `api_targets_tested=${apiTargets.length}`,
+      `graphql_targets=${graphQlTargets.length}`,
+      "",
+      "Sample API targets:",
+      apiTargets
+        .slice(0, 30)
+        .map((url) => url.toString())
+        .join("\n") || "No API targets discovered.",
+    ].join("\n"),
+    confidence: "INFORMATIONAL",
+    description:
+      "Probeveil ran API-specific discovery and safe probes for OpenAPI/Swagger, GraphQL, REST parameter handling, auth-header behavior, mass-assignment review, pagination/export behavior and schema-based coverage.",
+    impact:
+      "API-specific coverage improves visibility into routes and parameters that generic page crawling can miss.",
+    remediation:
+      "Add authenticated profiles and route seeds for private APIs, then review generated API findings against intended authorization and data exposure rules.",
+    root,
+    rule: "api/specific-testing-summary",
+    severity: "INFO",
+    title: "API-specific testing was performed",
+  });
+}
+
+function apiFinding({
+  affectedUrl,
+  confidence,
+  content,
+  description,
+  impact,
+  remediation,
+  root,
+  rule,
+  severity,
+  title,
+}: {
+  affectedUrl: string;
+  confidence: FindingInput["confidence"];
+  content: string;
+  description: string;
+  impact: string;
+  remediation: string;
+  root: URL;
+  rule: string;
+  severity: FindingInput["severity"];
+  title: string;
+}): FindingInput {
+  return {
+    title,
+    description,
+    category: "API-specific testing",
+    cwe: "CWE-284",
+    owaspCategory: "API Security",
+    severity,
+    confidence,
+    affectedUrl,
+    httpMethod: "GET",
+    scannerName: "Probeveil API Tester",
+    scannerRuleId: rule,
+    scannerVersion: "1.0.0",
+    fingerprint: createHash("sha256")
+      .update(`${rule}|${affectedUrl}`)
+      .digest("hex"),
+    impact,
+    remediation,
+    reproductionSteps: [
+      `Start from ${root.toString()}.`,
+      `Review the API route or schema at ${affectedUrl}.`,
+      "Replay the evidence with approved test credentials for anonymous, normal user, admin, User A and User B where available.",
+      "Confirm object ownership, field-level authorization, pagination caps, export permissions and schema coverage against intended behavior.",
+    ],
+    references: [
+      "https://owasp.org/API-Security/",
+      "https://owasp.org/API-Security/editions/2023/en/0xa1-broken-object-level-authorization/",
+      "https://owasp.org/API-Security/editions/2023/en/0xa3-broken-object-property-level-authorization/",
+    ],
+    evidence: [
+      {
+        type: "API_SPECIFIC_TESTING",
+        title,
+        content,
+      },
+    ],
+  };
 }
 
 function manualReviewFinding(task: ReviewTask, rootUrl: string): FindingInput {

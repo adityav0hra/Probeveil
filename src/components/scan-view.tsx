@@ -522,6 +522,11 @@ function buildInsight(scan: Scan) {
       finding.category === "Role comparison" ||
       finding.scannerRuleId?.startsWith("role-comparison/"),
   ).length;
+  const apiSpecificFindings = scan.findings.filter(
+    (finding) =>
+      finding.category === "API-specific testing" ||
+      finding.scannerRuleId?.startsWith("api/"),
+  ).length;
   const parameters = scan.endpoints.flatMap(
     (endpoint) => endpoint.parameters ?? [],
   );
@@ -591,6 +596,7 @@ function buildInsight(scan: Scan) {
       ["Technologies inferred", scan.technologies.length],
       ["Manual-review tasks", manualReview],
       ["Role findings", roleComparisonFindings],
+      ["API-specific findings", apiSpecificFindings],
       ["Evasion signals", evasionSignals.length],
       [
         "Adversarial stages",
