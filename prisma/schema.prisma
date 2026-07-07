@@ -62,6 +62,21 @@ enum FindingStatus {
   RETEST_FAILED
 }
 
+enum IssueLifecycleStatus {
+  ACTIVE
+  FIXED
+  REOPENED
+  ACCEPTED_RISK
+  FALSE_POSITIVE
+}
+
+enum IssueLifecycleEventType {
+  OBSERVED
+  FIXED
+  REOPENED
+  TRIAGED
+}
+
 enum ReportType {
   EXECUTIVE_HTML
   TECHNICAL_HTML
@@ -404,6 +419,8 @@ model Finding {
   id                 String                @id @default(cuid())
   scanId             String
   scan               Scan                  @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  issueId            String?
+  issue              FindingIssue?         @relation(fields: [issueId], references: [id], onDelete: SetNull)
   title              String
   description        String                @db.Text
   category           String
@@ -436,12 +453,59 @@ model Finding {
   reviews            FindingReview[]
   retests            Retest[]
   integrations       IntegrationDelivery[]
+  issueEvents        FindingIssueEvent[]
   createdAt          DateTime              @default(now())
   updatedAt          DateTime              @updatedAt
 
   @@unique([scanId, fingerprint])
   @@index([scanId, severity, status])
+  @@index([issueId, detectedAt])
   @@index([cwe])
+}
+
+model FindingIssue {
+  id              String                    @id @default(cuid())
+  normalizedHash  String
+  identityKey     String
+  title           String
+  category        String
+  cwe             String?
+  scannerRuleId   String
+  affectedUrl     String?                   @db.Text
+  parameter       String?
+  severity        Severity
+  status          IssueLifecycleStatus      @default(ACTIVE)
+  firstSeenAt     DateTime
+  lastSeenAt      DateTime
+  lastResolvedAt  DateTime?
+  lastScanId      String?
+  occurrenceCount Int                       @default(0)
+  findings        Finding[]
+  events          FindingIssueEvent[]
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+
+  @@unique([normalizedHash, identityKey])
+  @@index([normalizedHash, status])
+  @@index([status, severity, lastSeenAt])
+}
+
+model FindingIssueEvent {
+  id             String                  @id @default(cuid())
+  issueId        String
+  issue          FindingIssue            @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  scanId         String?
+  findingId      String?
+  finding        Finding?                @relation(fields: [findingId], references: [id], onDelete: SetNull)
+  eventType      IssueLifecycleEventType
+  fromStatus     IssueLifecycleStatus?
+  toStatus       IssueLifecycleStatus
+  severity       Severity?
+  summary        String                  @db.Text
+  createdAt      DateTime                @default(now())
+
+  @@index([issueId, createdAt])
+  @@index([scanId, eventType])
 }
 
 model FindingEvidence {

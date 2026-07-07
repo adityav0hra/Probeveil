@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { assignFindingIssues } from "@/lib/finding-identity/assignment";
 import { processScanIntegrations } from "@/lib/integrations/providers";
 import { processScanNotifications } from "@/lib/notifications/scan-notifications";
 import { calculateCoverageScore, calculateSecurityScore } from "@/lib/scoring";
@@ -377,6 +378,7 @@ export async function POST(
       },
     });
     await evaluateTargetedRetest(id);
+    await safelyAssignFindingIssues(id);
     await safelyProcessScanNotifications(id);
     await safelyProcessScanIntegrations(id);
   }
@@ -396,6 +398,17 @@ export async function POST(
     );
   }
   return NextResponse.json({ ok: true });
+}
+
+async function safelyAssignFindingIssues(scanId: string) {
+  try {
+    await assignFindingIssues(scanId);
+  } catch (error) {
+    console.error("Finding issue assignment failed", {
+      error: error instanceof Error ? error.message : String(error),
+      scanId,
+    });
+  }
 }
 
 async function safelyProcessScanNotifications(scanId: string) {

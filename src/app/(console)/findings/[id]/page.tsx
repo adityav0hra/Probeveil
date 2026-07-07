@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth";
 import { StatusPill } from "@/components/status-pill";
 import { CopyButton } from "@/components/copy-button";
+import { updateIssueFromFindingReview } from "@/lib/finding-identity/assignment";
 
 export default async function FindingPage({
   params,
@@ -18,6 +19,24 @@ export default async function FindingPage({
     where: { id },
     include: {
       evidence: true,
+      issue: {
+        include: {
+          events: { orderBy: { createdAt: "desc" }, take: 8 },
+          findings: {
+            include: {
+              scan: {
+                select: {
+                  id: true,
+                  normalizedUrl: true,
+                  status: true,
+                },
+              },
+            },
+            orderBy: { detectedAt: "desc" },
+            take: 8,
+          },
+        },
+      },
       retests: { orderBy: { createdAt: "desc" } },
       scan: true,
       reviews: { orderBy: { createdAt: "desc" }, include: { user: true } },
@@ -104,6 +123,13 @@ export default async function FindingPage({
         },
       }),
     ]);
+    await updateIssueFromFindingReview({
+      explanation: note || undefined,
+      findingId: id,
+      nextStatus: status,
+      previousStatus: before.status,
+      userId: session.user.id,
+    });
     revalidatePath(`/findings/${id}`);
   }
   const evidenceText = finding.evidence
@@ -197,6 +223,81 @@ export default async function FindingPage({
           </Section>
           <Section title="Remediation">
             <p>{finding.remediation}</p>
+          </Section>
+          <Section title="Issue lifecycle">
+            {finding.issue ? (
+              <div className="space-y-4">
+                <div className="grid gap-4 sm:grid-cols-4">
+                  <Item label="Issue status" value={finding.issue.status} />
+                  <Item
+                    label="Occurrences"
+                    value={String(finding.issue.occurrenceCount)}
+                  />
+                  <Item
+                    label="First seen"
+                    value={finding.issue.firstSeenAt.toLocaleString()}
+                  />
+                  <Item
+                    label="Last seen"
+                    value={finding.issue.lastSeenAt.toLocaleString()}
+                  />
+                </div>
+                <div className="rounded-lg border border-line bg-black/20 p-4">
+                  <p className="eyebrow">Recent lifecycle events</p>
+                  <div className="mt-3 space-y-3">
+                    {finding.issue.events.length ? (
+                      finding.issue.events.map((event) => (
+                        <div
+                          className="border-l border-line pl-3 text-xs"
+                          key={event.id}
+                        >
+                          <p className="font-medium text-slate-300">
+                            {event.eventType.replaceAll("_", " ")} ·{" "}
+                            {event.toStatus.replaceAll("_", " ")}
+                          </p>
+                          <p className="mt-1 text-slate-500">
+                            {event.summary}
+                          </p>
+                          <p className="mt-1 text-slate-600">
+                            {event.createdAt.toLocaleString()}
+                          </p>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="muted">No lifecycle events recorded yet.</p>
+                    )}
+                  </div>
+                </div>
+                <div className="rounded-lg border border-line bg-black/20 p-4">
+                  <p className="eyebrow">Recent occurrences</p>
+                  <div className="mt-3 space-y-2">
+                    {finding.issue.findings.map((occurrence) => (
+                      <Link
+                        className="block rounded-md border border-line bg-white/[.02] p-3 transition hover:border-slate-600"
+                        href={`/findings/${occurrence.id}`}
+                        key={occurrence.id}
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <StatusPill value={occurrence.severity} />
+                          <StatusPill value={occurrence.status} />
+                        </div>
+                        <p className="mt-2 truncate text-xs text-slate-500">
+                          {occurrence.scan.normalizedUrl}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-600">
+                          {occurrence.detectedAt.toLocaleString()}
+                        </p>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="muted">
+                This finding has not been linked to a persistent issue yet. The
+                next completed scan finalization will assign it.
+              </p>
+            )}
           </Section>
           <Section title="Reviewer history">
             {finding.reviews.length ? (

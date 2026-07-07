@@ -8,6 +8,7 @@ import {
   Inbox,
   HeartPulse,
   LayoutDashboard,
+  ListChecks,
   PlugZap,
   Radar,
   ScrollText,
@@ -21,6 +22,7 @@ import { Logo } from "./logo";
 const nav = [
   ["/admin", "Overview", LayoutDashboard],
   ["/scans/new", "New scan", ShieldPlus],
+  ["/issues", "Issues", ListChecks],
   ["/attack-surface", "Attack surface", Radar],
   ["/attack-paths", "Attack paths", GitFork],
   ["/reports", "Reports", FileText],

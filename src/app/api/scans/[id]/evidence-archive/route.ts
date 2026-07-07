@@ -91,6 +91,11 @@ function getArchiveScan(id: string) {
           reviews: {
             include: { user: { select: { email: true, name: true } } },
           },
+          issue: {
+            include: {
+              events: { orderBy: { createdAt: "desc" }, take: 20 },
+            },
+          },
         },
         orderBy: [{ severity: "asc" }, { detectedAt: "desc" }],
       },
@@ -131,6 +136,11 @@ function buildArchiveEntries(
 
   const findingRows = scan.findings.map((finding) => ({
     id: finding.id,
+    issueId: finding.issueId,
+    issueStatus: finding.issue?.status,
+    issueOccurrenceCount: finding.issue?.occurrenceCount,
+    issueFirstSeenAt: finding.issue?.firstSeenAt,
+    issueLastSeenAt: finding.issue?.lastSeenAt,
     title: finding.title,
     severity: finding.severity,
     confidence: finding.confidence,

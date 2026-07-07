@@ -29,7 +29,7 @@ export async function GET(
     include: {
       attackPaths: true,
       endpoints: { include: { parameters: true }, orderBy: { url: "asc" } },
-      findings: { include: { evidence: true } },
+      findings: { include: { evidence: true, issue: true } },
       services: true,
       stages: { orderBy: { order: "asc" } },
       technologies: true,
@@ -190,9 +190,20 @@ function htmlReport(scan: ReportScanData) {
 
 function csvExport(scan: ReportScanData) {
   const rows = [
-    ["ID", "Severity", "Confidence", "Status", "Title", "Affected location"],
+    [
+      "ID",
+      "Issue ID",
+      "Issue status",
+      "Severity",
+      "Confidence",
+      "Status",
+      "Title",
+      "Affected location",
+    ],
     ...scan.findings.map((finding) => [
       finding.id,
+      finding.issueId ?? "",
+      finding.issue?.status ?? "",
       finding.severity,
       finding.confidence,
       finding.status,
@@ -215,6 +226,11 @@ function sarifExport(scan: ReportScanData) {
         results: scan.findings.map((finding) => ({
           level: sarifLevel(finding.severity),
           message: { text: finding.description },
+          properties: {
+            issueId: finding.issueId,
+            issueStatus: finding.issue?.status,
+            occurrenceCount: finding.issue?.occurrenceCount,
+          },
           ruleId: finding.scannerRuleId ?? finding.category,
           locations: finding.affectedUrl
             ? [

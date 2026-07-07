@@ -51,6 +51,15 @@ export type ReportScanData = {
   }>;
   findings: Array<{
     id: string;
+    issueId?: string | null;
+    issue?: {
+      id: string;
+      status: string;
+      occurrenceCount: number;
+      firstSeenAt: Date | string;
+      lastSeenAt: Date | string;
+      lastResolvedAt?: Date | string | null;
+    } | null;
     title: string;
     description: string;
     severity: string;
