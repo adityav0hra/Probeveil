@@ -470,8 +470,8 @@ function ReportsPanel({ scanId }: { scanId: string }) {
             Raw Evidence Archive
           </p>
           <p className="mt-1 text-xs leading-5 text-slate-500">
-            Persisted findings, route inventory, evidence excerpts, stages,
-            reports and integrity metadata.
+            ZIP package with request/response pairs, route inventory, hashes,
+            screenshots, scanner logs, findings and report metadata.
           </p>
           <a
             className="button-secondary mt-3 px-3 py-2 text-xs"

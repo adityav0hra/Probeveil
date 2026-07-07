@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
@@ -109,6 +110,22 @@ const findingsEvent = z.object({
   type: z.literal("findings"),
   findings: z.array(findingShape).max(100),
 });
+const artifactEvent = z.object({
+  type: z.literal("artifacts"),
+  artifacts: z
+    .array(
+      z.object({
+        name: z.string().min(1).max(240),
+        type: z.string().min(1).max(80),
+        storageKey: z.string().min(1).max(500),
+        sha256: z.string().length(64),
+        size: z.number().int().min(0),
+        contentType: z.string().min(1).max(120),
+        metadata: z.record(z.string(), z.unknown()).optional(),
+      }),
+    )
+    .max(100),
+});
 const finalEvent = z.object({
   type: z.enum(["complete", "failed"]),
   finalUrl: z.string().optional(),
@@ -121,6 +138,7 @@ const eventSchema = z.discriminatedUnion("type", [
   serviceEvent,
   technologyEvent,
   findingsEvent,
+  artifactEvent,
   finalEvent,
 ]);
 
@@ -188,52 +206,49 @@ export async function POST(
       }
     }, transactionOptions);
   } else if (event.type === "parameters") {
-    await db.$transaction(
-      async (tx) => {
-        for (const parameter of event.parameters) {
-          const endpoint = await tx.endpoint.upsert({
-            where: {
-              scanId_url_method: {
-                scanId: id,
-                url: parameter.endpointUrl,
-                method: parameter.method,
-              },
-            },
-            update: {},
-            create: {
+    await db.$transaction(async (tx) => {
+      for (const parameter of event.parameters) {
+        const endpoint = await tx.endpoint.upsert({
+          where: {
+            scanId_url_method: {
               scanId: id,
               url: parameter.endpointUrl,
               method: parameter.method,
-              depth: 0,
-              tested: false,
-              external: false,
-              discoveredBy: "parameter-inventory",
             },
-          });
-          await tx.parameter.upsert({
-            where: {
-              endpointId_name_location: {
-                endpointId: endpoint.id,
-                name: parameter.name,
-                location: parameter.location,
-              },
-            },
-            update: {
-              dataType: parameter.dataType,
-              tested: parameter.tested,
-            },
-            create: {
+          },
+          update: {},
+          create: {
+            scanId: id,
+            url: parameter.endpointUrl,
+            method: parameter.method,
+            depth: 0,
+            tested: false,
+            external: false,
+            discoveredBy: "parameter-inventory",
+          },
+        });
+        await tx.parameter.upsert({
+          where: {
+            endpointId_name_location: {
               endpointId: endpoint.id,
               name: parameter.name,
               location: parameter.location,
-              dataType: parameter.dataType,
-              tested: parameter.tested,
             },
-          });
-        }
-      },
-      transactionOptions,
-    );
+          },
+          update: {
+            dataType: parameter.dataType,
+            tested: parameter.tested,
+          },
+          create: {
+            endpointId: endpoint.id,
+            name: parameter.name,
+            location: parameter.location,
+            dataType: parameter.dataType,
+            tested: parameter.tested,
+          },
+        });
+      }
+    }, transactionOptions);
   } else if (event.type === "services") {
     await db.service.createMany({
       data: event.services.map((service) => ({ scanId: id, ...service })),
@@ -276,6 +291,26 @@ export async function POST(
         },
       });
     }
+  } else if (event.type === "artifacts") {
+    await db.$transaction(async (tx) => {
+      await tx.evidenceArtifact.deleteMany({
+        where: {
+          scanId: id,
+          type: { in: [...new Set(event.artifacts.map((item) => item.type))] },
+        },
+      });
+      if (event.artifacts.length)
+        await tx.evidenceArtifact.createMany({
+          data: event.artifacts.map((artifact) => {
+            const { metadata, ...data } = artifact;
+            return {
+              scanId: id,
+              ...data,
+              metadata: metadata as Prisma.InputJsonValue | undefined,
+            };
+          }),
+        });
+    }, transactionOptions);
   } else if (event.type === "failed") {
     await db.scan.update({
       where: { id },

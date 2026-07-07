@@ -8,6 +8,7 @@ import type { FindingInput, ScanJob } from "./types";
 const PAGE_TIMEOUT = 12_000;
 const NETWORK_IDLE_TIMEOUT = 3_500;
 const INTERACTION_TIMEOUT = 1_500;
+const MAX_SCREENSHOT_ARCHIVE_BYTES = 750_000;
 
 export type BrowserRenderedEndpoint = {
   url: string;
@@ -40,6 +41,17 @@ export type BrowserRenderedResult = {
   findings: FindingInput[];
   parameters: BrowserRenderedParameter[];
   routeCandidates: BrowserRenderedRouteCandidate[];
+  screenshots: BrowserRenderedScreenshot[];
+};
+
+export type BrowserRenderedScreenshot = {
+  contentBase64?: string;
+  contentType: string;
+  name: string;
+  sha256: string;
+  size: number;
+  storageKey: string;
+  url: string;
 };
 
 type BrowserRuntime = {
@@ -140,7 +152,7 @@ export async function runBrowserRenderedScan({
   cancelled,
   mode,
   root,
-  screenshots,
+  screenshots: screenshotEnabled,
   startUrls,
 }: {
   authHeaders: Record<string, string>;
@@ -157,6 +169,7 @@ export async function runBrowserRenderedScan({
       parameters: [],
       routeCandidates: [],
       findings: [browserRuntimeUnavailableFinding(root.toString())],
+      screenshots: [],
     };
   const { browser } = launched;
 
@@ -165,6 +178,7 @@ export async function runBrowserRenderedScan({
   const parameters = new Map<string, BrowserRenderedParameter>();
   const observedResponses = new Map<string, ObservedResponse>();
   const screenshotEvidence: string[] = [];
+  const screenshots: BrowserRenderedScreenshot[] = [];
   const blockedHosts = new Set<string>();
   const allowedHostCache = new Map<string, boolean>();
   let pagesRendered = 0;
@@ -264,13 +278,16 @@ export async function runBrowserRenderedScan({
           });
 
           interactions += await exerciseSafeInteractions(page, cancelled);
-          if (screenshots) {
+          if (screenshotEnabled) {
             const buffer = await page
               .screenshot({ fullPage: true, timeout: 5_000, type: "png" })
               .catch(() => undefined);
             if (buffer)
-              screenshotEvidence.push(
-                `${new URL(page.url()).pathname || "/"} sha256=${createHash("sha256").update(buffer).digest("hex")} bytes=${buffer.byteLength}`,
+              recordScreenshot(
+                page.url(),
+                buffer,
+                screenshots,
+                screenshotEvidence,
               );
           }
         } catch (error) {
@@ -336,6 +353,7 @@ export async function runBrowserRenderedScan({
     ],
     parameters: [...parameters.values()].slice(0, 750),
     routeCandidates: [...routeCandidates.values()].slice(0, 350),
+    screenshots,
   };
 }
 
@@ -606,6 +624,44 @@ function addEndpoint(
     title: endpoint.title ?? existing?.title,
     tested: Boolean(existing?.tested || endpoint.tested),
   });
+}
+
+function recordScreenshot(
+  url: string,
+  buffer: Buffer,
+  screenshots: BrowserRenderedScreenshot[],
+  evidence: string[],
+) {
+  if (screenshots.length >= 6) return;
+  const sha256 = createHash("sha256").update(buffer).digest("hex");
+  const path = safeScreenshotName(url, screenshots.length + 1);
+  const archived = buffer.byteLength <= MAX_SCREENSHOT_ARCHIVE_BYTES;
+  screenshots.push({
+    contentBase64: archived ? buffer.toString("base64") : undefined,
+    contentType: "image/png",
+    name: path,
+    sha256,
+    size: buffer.byteLength,
+    storageKey: `screenshots/${path}`,
+    url,
+  });
+  evidence.push(
+    `${new URL(url).pathname || "/"} sha256=${sha256} bytes=${buffer.byteLength} archived=${archived}`,
+  );
+}
+
+function safeScreenshotName(url: string, index: number) {
+  let pathname = "page";
+  try {
+    pathname = new URL(url).pathname || "home";
+  } catch {}
+  const slug =
+    pathname
+      .replace(/^\//, "")
+      .replace(/[^a-z0-9]+/gi, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 80) || "home";
+  return `${String(index).padStart(2, "0")}-${slug}.png`;
 }
 
 function queryParameters(url: URL, method: string): BrowserRenderedParameter[] {

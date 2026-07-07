@@ -4,6 +4,7 @@ import tls from "node:tls";
 import { assertAddressesAllowed } from "@/lib/scope";
 import { isSameOriginOrSubdomain } from "@/lib/url";
 import { runBrowserRenderedScan } from "./browser-rendered";
+import type { BrowserRenderedScreenshot } from "./browser-rendered";
 import { runExternalScanners } from "./external-scanners";
 import type { FindingInput, ScanJob } from "./types";
 
@@ -196,6 +197,11 @@ type PageArtifact = {
   contentType?: string;
   body: string;
   headers: Record<string, string>;
+  request: {
+    headers: Record<string, string>;
+    method: string;
+    url: string;
+  };
   status: number;
 };
 type TechnologyInput = {
@@ -232,6 +238,15 @@ type ProbeObservation = {
   setCookie?: boolean;
   error?: string;
 };
+type ArchiveArtifactInput = {
+  name: string;
+  type: string;
+  storageKey: string;
+  sha256: string;
+  size: number;
+  contentType: string;
+  metadata?: Record<string, unknown>;
+};
 
 export async function runPassive(
   job: ScanJob,
@@ -247,6 +262,7 @@ export async function runPassive(
   const parameters = new Map<string, ParameterInput>();
   const seen = new Set<string>();
   const routeCandidates = new Map<string, { url: URL; source: string }>();
+  const supplementalArtifacts: ArchiveArtifactInput[] = [];
   const authenticatedFetch = { authHeaders: job.authHeaders ?? {} };
   const authSeedUrls = authenticatedRouteSeeds(root, job.auth);
   let finalUrl = job.url;
@@ -722,6 +738,9 @@ export async function runPassive(
     });
     endpoints.push(...rendered.endpoints);
     findings.push(...rendered.findings);
+    supplementalArtifacts.push(
+      ...rendered.screenshots.map(screenshotArtifactInput),
+    );
     for (const candidate of rendered.routeCandidates)
       routeCandidates.set(candidate.url.toString(), candidate);
     for (const parameter of rendered.parameters)
@@ -983,6 +1002,15 @@ export async function runPassive(
         type: "parameters",
         parameters: [...parameters.values()].slice(0, 1000),
       });
+    const archiveArtifacts = buildArchiveArtifacts(
+      artifacts,
+      supplementalArtifacts,
+    );
+    if (archiveArtifacts.length)
+      await emit({
+        type: "artifacts",
+        artifacts: archiveArtifacts,
+      });
   });
   await stage(emit, "score", async () => undefined);
   await stage(emit, "report", async () => undefined);
@@ -1007,6 +1035,11 @@ type SafeResponse = {
   cookies: string[];
   body: string;
   contentType?: string;
+  request: {
+    headers: Record<string, string>;
+    method: string;
+    url: string;
+  };
 };
 
 function artifact(response: SafeResponse): PageArtifact {
@@ -1015,6 +1048,7 @@ function artifact(response: SafeResponse): PageArtifact {
     contentType: response.contentType,
     body: response.body,
     headers: response.headers,
+    request: response.request,
     status: response.status,
   };
 }
@@ -3560,6 +3594,109 @@ function dedupeFindings(findings: FindingInput[]) {
   ];
 }
 
+function buildArchiveArtifacts(
+  pageArtifacts: PageArtifact[],
+  supplementalArtifacts: ArchiveArtifactInput[],
+): ArchiveArtifactInput[] {
+  const httpArtifacts = [
+    ...new Map(pageArtifacts.map((item) => [item.url, item])).values(),
+  ]
+    .slice(0, 80)
+    .map((item, index) => httpExchangeArtifactInput(item, index + 1));
+  return [...httpArtifacts, ...supplementalArtifacts].slice(0, 100);
+}
+
+function httpExchangeArtifactInput(
+  item: PageArtifact,
+  index: number,
+): ArchiveArtifactInput {
+  const bodyBuffer = Buffer.from(item.body);
+  const bodySha256 = createHash("sha256").update(bodyBuffer).digest("hex");
+  const exchange = {
+    kind: "http-exchange",
+    request: {
+      method: item.request.method,
+      url: item.request.url,
+      headers: item.request.headers,
+    },
+    response: {
+      url: item.url,
+      status: item.status,
+      headers: redactHeaders(item.headers),
+      contentType: item.contentType,
+      bodyLength: bodyBuffer.byteLength,
+      bodySha256,
+      bodyExcerpt: item.body.slice(0, 24_000),
+      bodyExcerptTruncated: item.body.length > 24_000,
+    },
+  };
+  const content = JSON.stringify(exchange, null, 2);
+  const sha256 = createHash("sha256").update(content).digest("hex");
+  const name = `${String(index).padStart(3, "0")}-${safeArtifactSlug(item.url)}.json`;
+  return {
+    name,
+    type: "HTTP_EXCHANGE",
+    storageKey: `http-exchanges/${name}`,
+    sha256,
+    size: Buffer.byteLength(content),
+    contentType: "application/json",
+    metadata: exchange,
+  };
+}
+
+function screenshotArtifactInput(
+  screenshot: BrowserRenderedScreenshot,
+): ArchiveArtifactInput {
+  return {
+    name: screenshot.name,
+    type: "SCREENSHOT",
+    storageKey: screenshot.storageKey,
+    sha256: screenshot.sha256,
+    size: screenshot.size,
+    contentType: screenshot.contentType,
+    metadata: {
+      kind: "screenshot",
+      url: screenshot.url,
+      sha256: screenshot.sha256,
+      size: screenshot.size,
+      contentBase64: screenshot.contentBase64,
+      archived: Boolean(screenshot.contentBase64),
+    },
+  };
+}
+
+function safeArtifactSlug(value: string) {
+  try {
+    const url = new URL(value);
+    const path = `${url.hostname}${url.pathname}${url.search ? "-query" : ""}`;
+    return (
+      path
+        .replace(/[^a-z0-9]+/gi, "-")
+        .replace(/^-|-$/g, "")
+        .slice(0, 90) || "exchange"
+    );
+  } catch {
+    return "exchange";
+  }
+}
+
+function redactHeaders(headers: Record<string, string>) {
+  return Object.fromEntries(
+    Object.entries(headers).map(([key, value]) => [
+      key,
+      /authorization|cookie|token|secret|key/i.test(key)
+        ? redactValue(value)
+        : value,
+    ]),
+  );
+}
+
+function redactValue(value: string) {
+  if (!value) return "";
+  if (value.length <= 12) return "[redacted]";
+  return `${value.slice(0, 6)}...[redacted]...${value.slice(-4)}`;
+}
+
 function renderObservation(item: ProbeObservation) {
   return [
     `${item.label} ${item.method} ${item.url}`,
@@ -3727,17 +3864,18 @@ async function safeFetch(
     await validateDestination(url);
     if (!allowExternal && !isSameOriginOrSubdomain(url, root))
       throw new Error(`Redirect left configured scope: ${url.hostname}`);
+    const requestHeaders = {
+      "user-agent": "Probeveil/1.0 security scan",
+      accept: "text/html,application/xhtml+xml,application/json;q=.8,*/*;q=.2",
+      ...(isSameOriginOrSubdomain(url, root) ? authHeaders : {}),
+      ...headersToRecord(fetchInit.headers),
+    };
+    const requestMethod = fetchInit.method?.toString().toUpperCase() ?? "GET";
     const response = await fetch(url, {
       ...fetchInit,
       redirect: "manual",
       signal: AbortSignal.timeout(TIMEOUT),
-      headers: {
-        "user-agent": "Probeveil/1.0 security scan",
-        accept:
-          "text/html,application/xhtml+xml,application/json;q=.8,*/*;q=.2",
-        ...(isSameOriginOrSubdomain(url, root) ? authHeaders : {}),
-        ...fetchInit.headers,
-      },
+      headers: requestHeaders,
     });
     if (
       response.status >= 300 &&
@@ -3764,9 +3902,21 @@ async function safeFetch(
       cookies,
       body: new TextDecoder().decode(bytes),
       contentType: response.headers.get("content-type") ?? undefined,
+      request: {
+        headers: redactHeaders(requestHeaders),
+        method: requestMethod,
+        url: url.toString(),
+      },
     };
   }
   throw new Error("Target exceeded the redirect limit.");
+}
+
+function headersToRecord(headers: HeadersInit | undefined) {
+  if (!headers) return {};
+  if (headers instanceof Headers) return Object.fromEntries(headers.entries());
+  if (Array.isArray(headers)) return Object.fromEntries(headers);
+  return headers;
 }
 
 function inspectTls(hostname: string, port: number) {
