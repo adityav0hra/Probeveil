@@ -8,7 +8,11 @@ Probeveil is a production-oriented security scan control plane for approved web 
 2. Run `docker compose up --build`.
 3. Open `http://localhost:3000` and sign in with `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD`.
 
-For host development, start PostgreSQL and Redis, set their URLs, then run `npm ci`, `npx prisma migrate dev`, `npm run db:seed`, `npm run dev` and `npm run worker:watch` in separate terminals.
+For host development, start PostgreSQL and Redis, set their URLs, then run `npm ci`, `npm run db:migrate:dev`, `npm run db:seed`, `npm run dev` and `npm run worker:watch` in separate terminals.
+
+## Database migrations
+
+Database schema changes are versioned in `prisma/migrations`. Create future schema changes with `npm run db:migrate:dev -- --name descriptive_name`, review the generated SQL, commit the migration folder with `prisma/schema.prisma`, then apply migrations in production with `npm run db:migrate`. Do not use `prisma db push` for production schema changes.
 
 ## Verification
 
