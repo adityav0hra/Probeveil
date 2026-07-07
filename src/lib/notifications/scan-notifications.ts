@@ -9,7 +9,7 @@ import {
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { diffFindings, type FindingDiffInput } from "@/lib/scheduling";
-import { sendNotificationEmail } from "./email";
+import { sendNotificationEmailDetailed } from "./email";
 
 type AutomationSettings = {
   differentialReports: boolean;
@@ -143,17 +143,18 @@ async function createAndSendNotification(input: {
     NotificationDeliveryStatus.NOT_CONFIGURED;
   let error: string | undefined;
   try {
-    const result = await sendNotificationEmail({
+    const result = await sendNotificationEmailDetailed({
       subject: input.subject,
       text: input.body,
       to: input.toEmail,
     });
     status =
-      result === "SENT"
+      result.status === "SENT"
         ? NotificationDeliveryStatus.SENT
-        : result === "FAILED"
+        : result.status === "FAILED"
           ? NotificationDeliveryStatus.FAILED
           : NotificationDeliveryStatus.NOT_CONFIGURED;
+    error = result.error;
   } catch (caught) {
     status = NotificationDeliveryStatus.FAILED;
     error = caught instanceof Error ? caught.message : String(caught);

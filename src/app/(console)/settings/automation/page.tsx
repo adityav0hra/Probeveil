@@ -1,9 +1,22 @@
 import { revalidatePath } from "next/cache";
 import Link from "next/link";
-import { Bell, CalendarClock, Pause, Play, Trash2 } from "lucide-react";
+import {
+  Bell,
+  CalendarClock,
+  MailCheck,
+  Pause,
+  Play,
+  Send,
+  Trash2,
+} from "lucide-react";
 import type { ScanMode } from "@prisma/client";
+import { NotificationDeliveryStatus, NotificationType } from "@prisma/client";
 import { requireRole } from "@/lib/auth";
 import { db } from "@/lib/db";
+import {
+  getNotificationEmailStatus,
+  sendNotificationEmailDetailed,
+} from "@/lib/notifications/email";
 import { nextScheduledRun, type ScheduleCadenceValue } from "@/lib/scheduling";
 import { normalizeUrlInput, urlFingerprint } from "@/lib/url";
 
@@ -25,6 +38,7 @@ const defaults: AutomationSettings = {
 
 export default async function AutomationSettingsPage() {
   await requireRole(["ADMIN"]);
+  const emailStatus = getNotificationEmailStatus();
   const [settings, schedules, notifications] = await Promise.all([
     readSettings(),
     db.scanSchedule.findMany({
@@ -169,6 +183,65 @@ export default async function AutomationSettingsPage() {
     revalidatePath("/settings/automation");
   }
 
+  async function sendTestEmail(formData: FormData) {
+    "use server";
+    const session = await requireRole(["ADMIN"]);
+    const settings = await readSettings();
+    const toEmail = String(formData.get("testEmail") ?? "").trim();
+    const targetEmail = toEmail || settings.notificationEmail;
+    const subject = "Probeveil notification test";
+    const body = [
+      "Probeveil notification test",
+      "",
+      "Outbound notification delivery is connected to this environment.",
+      `Requested by: ${session.user.email}`,
+      `Sent at: ${new Date().toISOString()}`,
+    ].join("\n");
+    const result = await sendNotificationEmailDetailed({
+      subject,
+      text: body,
+      to: targetEmail,
+    });
+    const status =
+      result.status === "SENT"
+        ? NotificationDeliveryStatus.SENT
+        : result.status === "FAILED"
+          ? NotificationDeliveryStatus.FAILED
+          : NotificationDeliveryStatus.NOT_CONFIGURED;
+    await db.$transaction([
+      db.scanNotification.create({
+        data: {
+          body,
+          error: result.error,
+          metadata: {
+            provider: result.provider,
+            requestedBy: session.user.email,
+            test: true,
+          },
+          sentAt:
+            status === NotificationDeliveryStatus.SENT ? new Date() : null,
+          status,
+          subject,
+          toEmail: targetEmail || null,
+          type: NotificationType.SCAN_SUMMARY,
+        },
+      }),
+      db.auditLog.create({
+        data: {
+          action: "NOTIFICATION_TEST_EMAIL_SENT",
+          metadata: {
+            deliveryStatus: status,
+            provider: result.provider,
+            toEmailConfigured: Boolean(targetEmail),
+          },
+          resourceType: "ScanNotification",
+          userId: session.user.id,
+        },
+      }),
+    ]);
+    revalidatePath("/settings/automation");
+  }
+
   return (
     <>
       <p className="eyebrow">System configuration</p>
@@ -177,6 +250,47 @@ export default async function AutomationSettingsPage() {
         Run recurring scans, send alert emails and track what changed since the
         last scan.
       </p>
+
+      <section className="panel mt-8 p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <div className="flex items-center gap-3">
+              <MailCheck className="text-signal" size={20} />
+              <h2 className="text-lg font-semibold">Email provider</h2>
+              <span className={providerClass(emailStatus.configured)}>
+                {emailStatus.configured ? "Configured" : "Not configured"}
+              </span>
+            </div>
+            <div className="mt-4 grid gap-3 text-sm text-slate-400 sm:grid-cols-3">
+              <Metric
+                label="Provider"
+                value={providerLabel(emailStatus.provider)}
+              />
+              <Metric label="From" value={emailStatus.from ?? "Missing"} />
+              <Metric
+                label="Default recipient"
+                value={settings.notificationEmail || "Missing"}
+              />
+            </div>
+          </div>
+          <form
+            action={sendTestEmail}
+            className="grid w-full gap-3 lg:max-w-sm"
+          >
+            <input
+              className="input"
+              defaultValue={settings.notificationEmail}
+              name="testEmail"
+              placeholder="test@example.com"
+              type="email"
+            />
+            <button className="button-secondary" type="submit">
+              <Send size={16} />
+              Send test email
+            </button>
+          </form>
+        </div>
+      </section>
 
       <div className="mt-8 grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,.9fr)]">
         <form action={createSchedule} className="panel p-6">
@@ -458,6 +572,17 @@ function Checkbox({
   );
 }
 
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-line bg-black/20 p-3">
+      <p className="text-xs text-slate-500">{label}</p>
+      <p className="mt-1 truncate text-sm font-medium text-slate-200">
+        {value}
+      </p>
+    </div>
+  );
+}
+
 async function readSettings() {
   const row = await db.systemSetting.findUnique({ where: { key: settingKey } });
   if (!row?.value || typeof row.value !== "object") return defaults;
@@ -503,4 +628,16 @@ function deliveryClass(status: string) {
   if (status === "FAILED")
     return "h-fit rounded-full bg-red-500/10 px-2.5 py-1 text-xs font-medium text-red-300";
   return "h-fit rounded-full bg-amber-400/10 px-2.5 py-1 text-xs font-medium text-amber-200";
+}
+
+function providerClass(configured: boolean) {
+  return configured
+    ? "rounded-full bg-emerald-400/10 px-2.5 py-1 text-xs font-medium text-emerald-200"
+    : "rounded-full bg-amber-400/10 px-2.5 py-1 text-xs font-medium text-amber-200";
+}
+
+function providerLabel(provider: string) {
+  if (provider === "RESEND") return "Resend";
+  if (provider === "WEBHOOK") return "Webhook";
+  return "Missing";
 }
