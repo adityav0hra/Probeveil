@@ -20,7 +20,17 @@ export async function POST(
 
   const scan = await db.scan.findUnique({
     where: { id },
-    select: { id: true, mode: true, normalizedUrl: true, status: true },
+    select: {
+      id: true,
+      mode: true,
+      normalizedUrl: true,
+      status: true,
+      targets: {
+        select: { metadata: true },
+        take: 1,
+        where: { kind: "PRIMARY" },
+      },
+    },
   });
   if (!scan) return new NextResponse("Not found", { status: 404 });
   if (scan.status !== "QUEUED")
@@ -53,7 +63,10 @@ export async function POST(
   });
 
   const origin = new URL(request.url).origin;
+  const options = scanOptions(scan.targets[0]?.metadata);
   const job: ScanJob = {
+    authHeaders: options.authHeaders,
+    features: options.features,
     mode: scan.mode,
     scanId: scan.id,
     token,
@@ -119,4 +132,24 @@ export async function POST(
     });
     throw error;
   }
+}
+
+function scanOptions(value: unknown): Pick<ScanJob, "authHeaders" | "features"> {
+  if (!value || typeof value !== "object") return {};
+  const data = value as {
+    authHeaders?: Record<string, unknown>;
+    features?: Record<string, unknown>;
+  };
+  return {
+    authHeaders: Object.fromEntries(
+      Object.entries(data.authHeaders ?? {}).filter(
+        (entry): entry is [string, string] => typeof entry[1] === "string",
+      ),
+    ),
+    features: {
+      apiDiscovery: Boolean(data.features?.apiDiscovery),
+      browserRendering: Boolean(data.features?.browserRendering),
+      screenshots: Boolean(data.features?.screenshots),
+    },
+  };
 }

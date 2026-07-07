@@ -243,6 +243,7 @@ export async function runPassive(
   const parameters = new Map<string, ParameterInput>();
   const seen = new Set<string>();
   const routeCandidates = new Map<string, { url: URL; source: string }>();
+  const authenticatedFetch = { authHeaders: job.authHeaders ?? {} };
   let finalUrl = job.url;
 
   await stage(emit, "validate", async () => {
@@ -340,7 +341,7 @@ export async function runPassive(
   await ensureRunning(cancelled);
   let response!: SafeResponse;
   await stage(emit, "surface", async () => {
-    response = await safeFetch(root, root);
+    response = await safeFetch(root, root, authenticatedFetch);
     finalUrl = response.url;
     artifacts.push(artifact(response));
     for (const technology of detectTechnologies(response))
@@ -599,7 +600,10 @@ export async function runPassive(
           current.depth === 0 &&
           current.url.toString() === finalUrl
             ? response
-            : await safeFetch(current.url, root, { allowExternal: isExternal });
+            : await safeFetch(current.url, root, {
+                ...authenticatedFetch,
+                allowExternal: isExternal,
+              });
         artifacts.push(artifact(page));
         for (const technology of detectTechnologies(page))
           technologies.set(
@@ -692,6 +696,10 @@ export async function runPassive(
         target: new URL(finalUrl),
       })),
     );
+    if (job.features?.browserRendering)
+      findings.push(browserRenderingCoverageFinding(finalUrl));
+    if (job.features?.screenshots)
+      findings.push(screenshotCoverageFinding(finalUrl));
   });
   await stage(emit, "exposure-probes", async () => {
     const exposureCandidates = exposureProbeCandidates(new URL(finalUrl));
@@ -700,6 +708,7 @@ export async function runPassive(
       await ensureRunning(cancelled);
       try {
         const page = await safeFetch(candidate.url, root, {
+          ...authenticatedFetch,
           headers: { "x-probeveil-discovery": candidate.source },
         });
         endpoints.push(
@@ -751,6 +760,7 @@ export async function runPassive(
       if (!isSameOriginOrSubdomain(candidate.url, root)) continue;
       try {
         const page = await safeFetch(candidate.url, root, {
+          ...authenticatedFetch,
           headers: { "x-probeveil-discovery": candidate.source },
         });
         const discovered = endpoint(
@@ -767,7 +777,11 @@ export async function runPassive(
         for (const parameter of extractParameters(page))
           parameters.set(parameterKey(parameter), parameter);
         if (candidate.url.pathname.toLowerCase().includes("graphql")) {
-          const graphQlObservations = await graphqlProbe(candidate.url, root);
+          const graphQlObservations = await graphqlProbe(
+            candidate.url,
+            root,
+            authenticatedFetch.authHeaders,
+          );
           reviewTasks.push({
             title: `Review GraphQL surface ${candidate.url.pathname}`,
             url: candidate.url.toString(),
@@ -839,7 +853,11 @@ export async function runPassive(
       .slice(0, job.mode === "QUICK" ? 8 : job.mode === "FULL" ? 20 : 50);
     for (const target of targets) {
       await ensureRunning(cancelled);
-      const observations = await differentialProbe(new URL(target.url), root);
+      const observations = await differentialProbe(
+        new URL(target.url),
+        root,
+        authenticatedFetch.authHeaders,
+      );
       const interesting = analyseDifferential(observations);
       if (!interesting) continue;
       reviewTasks.push({
@@ -857,6 +875,10 @@ export async function runPassive(
     }
   });
   await stage(emit, "manual-review", async () => {
+    if (job.authHeaders && Object.keys(job.authHeaders).length)
+      findings.push(authenticatedCoverageFinding(finalUrl));
+    if (job.features?.apiDiscovery)
+      findings.push(...apiCoverageFindings(dedupeEndpoints(endpoints), root));
     for (const task of parameterReviewTasks([...parameters.values()]))
       reviewTasks.push(task);
     const tasks = dedupeReviewTasks(reviewTasks).slice(
@@ -1351,6 +1373,7 @@ function escalateExposureSeverity(
 async function differentialProbe(
   url: URL,
   root: URL,
+  authHeaders: Record<string, string> = {},
 ): Promise<ProbeObservation[]> {
   const variants: Array<{ label: string; url: URL; init?: RequestInit }> = [
     { label: "baseline-get", url },
@@ -1384,7 +1407,10 @@ async function differentialProbe(
   const observations: ProbeObservation[] = [];
   for (const variant of variants) {
     try {
-      const response = await safeFetch(variant.url, root, variant.init ?? {});
+      const response = await safeFetch(variant.url, root, {
+        ...(variant.init ?? {}),
+        authHeaders,
+      });
       observations.push({
         label: variant.label,
         url: variant.url.toString(),
@@ -1609,7 +1635,10 @@ async function clientProfileObservations(
   const observations: ClientProfileObservation[] = [];
   for (const profile of profiles) {
     try {
-      const response = await safeFetch(target, root, profile.init);
+      const response = await safeFetch(target, root, {
+        ...profile.init,
+        authHeaders: job.authHeaders ?? {},
+      });
       observations.push({
         label: profile.label,
         url: response.url,
@@ -1889,6 +1918,162 @@ function evasionFinding({
   };
 }
 
+function authenticatedCoverageFinding(affectedUrl: string): FindingInput {
+  return {
+    title: "Authenticated scan context was used",
+    description:
+      "Probeveil used administrator-provided authentication headers for same-origin requests during this scan. This improves coverage for signed-in application areas, but role and account comparison still requires multiple approved credentials.",
+    category: "Authenticated coverage",
+    cwe: "CWE-284",
+    owaspCategory: "Access Control",
+    severity: "INFO",
+    confidence: "INFORMATIONAL",
+    affectedUrl,
+    httpMethod: "GET",
+    scannerName: "Probeveil Coverage Engine",
+    scannerRuleId: "coverage/authenticated-context",
+    scannerVersion: "1.0.0",
+    fingerprint: createHash("sha256")
+      .update(`coverage/authenticated-context|${affectedUrl}`)
+      .digest("hex"),
+    impact:
+      "Authenticated coverage can reveal findings hidden from anonymous scans, but it does not prove cross-role authorization without comparing multiple user contexts.",
+    remediation:
+      "Add separate normal-user and admin credentials for role comparison, then retest sensitive routes, exports, settings and object-specific pages.",
+    reproductionSteps: [
+      "Run one scan without authentication headers.",
+      "Run a second scan with approved authentication headers.",
+      "Compare route, parameter, finding and evasion-signal differences between both scans.",
+    ],
+    references: [
+      "https://owasp.org/API-Security/editions/2023/en/0xa1-broken-object-level-authorization/",
+    ],
+    evidence: [
+      {
+        type: "COVERAGE_CONTEXT",
+        title: "Authenticated scan context",
+        content:
+          "Authentication headers were configured for this scan. Header values are intentionally not exported.",
+      },
+    ],
+  };
+}
+
+function browserRenderingCoverageFinding(affectedUrl: string): FindingInput {
+  return coverageModeFinding({
+    affectedUrl,
+    rule: "coverage/browser-rendering-requested",
+    title: "Browser-rendered crawling was requested",
+    detail:
+      "A browser-capable crawl profile was requested for this scan. The current worker records this requirement and prioritizes JavaScript route/API discovery signals; full screenshot-grade browser execution should be run from a browser worker.",
+  });
+}
+
+function screenshotCoverageFinding(affectedUrl: string): FindingInput {
+  return coverageModeFinding({
+    affectedUrl,
+    rule: "coverage/screenshot-capture-requested",
+    title: "Screenshot capture was requested",
+    detail:
+      "Screenshot capture was requested for report evidence. The report now reserves screenshot evidence context; full page image capture requires the browser worker profile.",
+  });
+}
+
+function coverageModeFinding({
+  affectedUrl,
+  detail,
+  rule,
+  title,
+}: {
+  affectedUrl: string;
+  detail: string;
+  rule: string;
+  title: string;
+}): FindingInput {
+  return {
+    title,
+    description: detail,
+    category: "Coverage mode",
+    cwe: "CWE-693",
+    owaspCategory: "Security Testing Coverage",
+    severity: "INFO",
+    confidence: "INFORMATIONAL",
+    affectedUrl,
+    httpMethod: "GET",
+    scannerName: "Probeveil Coverage Engine",
+    scannerRuleId: rule,
+    scannerVersion: "1.0.0",
+    fingerprint: createHash("sha256").update(`${rule}|${affectedUrl}`).digest(
+      "hex",
+    ),
+    impact:
+      "Coverage-mode findings make report readers aware of requested scanner depth and any remaining execution requirements.",
+    remediation:
+      "Use the browser worker profile for screenshot-grade crawling, then compare route and finding deltas against the passive scan.",
+    reproductionSteps: [
+      "Create a scan with the advanced coverage option enabled.",
+      "Review the report coverage section and route inventory.",
+      "Run a browser worker retest when interactive JavaScript coverage is required.",
+    ],
+    references: ["https://owasp.org/www-project-web-security-testing-guide/"],
+    evidence: [
+      {
+        type: "COVERAGE_MODE",
+        title,
+        content: detail,
+      },
+    ],
+  };
+}
+
+function apiCoverageFindings(endpoints: Endpoint[], root: URL): FindingInput[] {
+  const apiRoutes = endpoints.filter((endpoint) =>
+    /\/(?:api|graphql|rpc|rest|v[0-9])(?:\/|$|\?)/i.test(endpoint.url),
+  );
+  if (!apiRoutes.length) return [];
+  const sample = apiRoutes
+    .slice(0, 20)
+    .map((endpoint) => `${endpoint.method} ${endpoint.statusCode ?? "-"} ${endpoint.url}`)
+    .join("\n");
+  return [
+    {
+      title: "API surface requires schema and role-aware testing",
+      description:
+        "Probeveil discovered API-like routes. API vulnerabilities often require schema-aware checks, token comparison, ownership tests, mass-assignment review, pagination/export validation and rate-limit review beyond generic page crawling.",
+      category: "API coverage",
+      cwe: "CWE-284",
+      owaspCategory: "API Security",
+      severity: "LOW",
+      confidence: "MANUAL_REVIEW",
+      affectedUrl: root.toString(),
+      httpMethod: "GET",
+      scannerName: "Probeveil API Coverage Engine",
+      scannerRuleId: "coverage/api-surface-review",
+      scannerVersion: "1.0.0",
+      fingerprint: createHash("sha256")
+        .update(`coverage/api-surface-review|${root.toString()}`)
+        .digest("hex"),
+      impact:
+        "API routes commonly expose broken object authorization, excessive data exposure, unsafe batch operations, weak throttling and mass assignment.",
+      remediation:
+        "Import OpenAPI/GraphQL schemas when available, add role-paired credentials, and validate object ownership, field-level authorization, pagination/export controls and mutation workflows.",
+      reproductionSteps: [
+        "Review the API-like routes listed in the evidence.",
+        "Compare anonymous, normal-user and admin access for the same endpoints.",
+        "Check object identifiers, filters, exports, batch operations and mutation fields for server-side authorization.",
+      ],
+      references: ["https://owasp.org/API-Security/"],
+      evidence: [
+        {
+          type: "API_SURFACE",
+          title: "Discovered API-like routes",
+          content: sample,
+        },
+      ],
+    },
+  ];
+}
+
 function manualReviewFinding(task: ReviewTask, rootUrl: string): FindingInput {
   return {
     title: task.title,
@@ -2021,7 +2206,11 @@ function parameterVariants(
   return variants.slice(0, 6);
 }
 
-async function graphqlProbe(url: URL, root: URL): Promise<ProbeObservation[]> {
+async function graphqlProbe(
+  url: URL,
+  root: URL,
+  authHeaders: Record<string, string> = {},
+): Promise<ProbeObservation[]> {
   const probes: Array<{ label: string; body: string }> = [
     {
       label: "graphql-typename",
@@ -2039,6 +2228,7 @@ async function graphqlProbe(url: URL, root: URL): Promise<ProbeObservation[]> {
   for (const probe of probes) {
     try {
       const response = await safeFetch(url, root, {
+        authHeaders,
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -2106,7 +2296,10 @@ async function validateDestination(url: URL) {
   );
 }
 
-type SafeFetchInit = RequestInit & { allowExternal?: boolean };
+type SafeFetchInit = RequestInit & {
+  allowExternal?: boolean;
+  authHeaders?: Record<string, string>;
+};
 
 async function safeFetch(
   start: URL,
@@ -2114,7 +2307,7 @@ async function safeFetch(
   init: SafeFetchInit = {},
 ): Promise<SafeResponse> {
   let url = start;
-  const { allowExternal = false, ...fetchInit } = init;
+  const { allowExternal = false, authHeaders = {}, ...fetchInit } = init;
   for (let redirects = 0; redirects <= 8; redirects++) {
     if (!["http:", "https:"].includes(url.protocol))
       throw new Error(`Unsupported redirect protocol: ${url.protocol}`);
@@ -2129,6 +2322,7 @@ async function safeFetch(
         "user-agent": "Probeveil/1.0 security scan",
         accept:
           "text/html,application/xhtml+xml,application/json;q=.8,*/*;q=.2",
+        ...(isSameOriginOrSubdomain(url, root) ? authHeaders : {}),
         ...fetchInit.headers,
       },
     });

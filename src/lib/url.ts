@@ -2,7 +2,24 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 
 export const scanModeSchema = z.enum(["QUICK", "FULL", "MAXIMUM"]);
-export const createScanSchema = z.object({ url: z.string().trim().min(1).max(2048), mode: scanModeSchema });
+export const createScanSchema = z.object({
+  apiDiscovery: z
+    .union([z.literal("on"), z.boolean()])
+    .optional()
+    .transform(Boolean),
+  authHeader: z.string().trim().max(2000).optional().default(""),
+  browserRendering: z
+    .union([z.literal("on"), z.boolean()])
+    .optional()
+    .transform(Boolean),
+  cookieHeader: z.string().trim().max(4000).optional().default(""),
+  mode: scanModeSchema,
+  screenshotCapture: z
+    .union([z.literal("on"), z.boolean()])
+    .optional()
+    .transform(Boolean),
+  url: z.string().trim().min(1).max(2048),
+});
 
 export function normalizeUrlInput(input: string) {
   let value = input.trim();

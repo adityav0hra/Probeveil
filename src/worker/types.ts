@@ -1,4 +1,10 @@
 export type ScanJob = {
+  authHeaders?: Record<string, string>;
+  features?: {
+    apiDiscovery?: boolean;
+    browserRendering?: boolean;
+    screenshots?: boolean;
+  };
   scanId: string;
   url: string;
   mode: "QUICK" | "FULL" | "MAXIMUM";

@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { ArrowLeft, Download } from "lucide-react";
+import { ArrowLeft, Download, RotateCcw } from "lucide-react";
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth";
@@ -17,6 +17,7 @@ export default async function FindingPage({
     where: { id },
     include: {
       evidence: true,
+      retests: { orderBy: { createdAt: "desc" } },
       scan: true,
       reviews: { orderBy: { createdAt: "desc" }, include: { user: true } },
     },
@@ -33,6 +34,8 @@ export default async function FindingPage({
       "ACCEPTED_RISK",
       "FIXED",
       "OPEN",
+      "RETEST_FAILED",
+      "RETEST_PASSED",
     ];
     if (!allowed.includes(status)) throw new Error("Invalid review state");
     const before = await db.finding.findUniqueOrThrow({ where: { id } });
@@ -95,6 +98,12 @@ export default async function FindingPage({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <form action={`/api/findings/${id}/retest`} method="post">
+            <button className="button-secondary" type="submit">
+              <RotateCcw size={14} />
+              Targeted retest
+            </button>
+          </form>
           <CopyButton value={evidenceText} label="Copy evidence" />
           <a className="button-secondary" href={`/api/findings/${id}/evidence`}>
             <Download size={14} />
@@ -168,6 +177,8 @@ export default async function FindingPage({
                 <option value="FALSE_POSITIVE">Mark false positive</option>
                 <option value="ACCEPTED_RISK">Accept risk</option>
                 <option value="FIXED">Mark fixed</option>
+                <option value="RETEST_PASSED">Retest passed</option>
+                <option value="RETEST_FAILED">Retest failed</option>
               </select>
             </label>
             <label className="mt-4 block text-sm text-slate-300">
@@ -194,6 +205,30 @@ export default async function FindingPage({
                 value={finding.fingerprint.slice(0, 18) + "…"}
               />
             </dl>
+          </div>
+          <div className="panel p-5">
+            <p className="eyebrow">Retests</p>
+            <div className="mt-4 space-y-3">
+              {finding.retests.length ? (
+                finding.retests.map((retest) => (
+                  <div
+                    className="rounded-lg border border-line bg-black/20 p-3 text-sm"
+                    key={retest.id}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-slate-300">{retest.status}</span>
+                      <span className="text-xs text-slate-600">
+                        {retest.createdAt.toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-slate-500">
+                  No targeted retests have been started.
+                </p>
+              )}
+            </div>
           </div>
         </aside>
       </div>

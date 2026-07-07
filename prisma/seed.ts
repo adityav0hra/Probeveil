@@ -81,6 +81,34 @@ async function main() {
       ],
     },
   });
+  for (const tool of [
+    {
+      name: "Nikto",
+      kind: "WEB_SERVER_BASELINE",
+      capabilities: ["server diagnostics", "dangerous files", "legacy checks"],
+    },
+    {
+      name: "testssl.sh",
+      kind: "TLS_DIAGNOSTIC",
+      capabilities: ["tls posture", "certificate checks", "cipher review"],
+    },
+    {
+      name: "OWASP ZAP Baseline",
+      kind: "DAST_BASELINE",
+      capabilities: ["passive DAST", "headers", "browser-era web checks"],
+    },
+  ]) {
+    await prisma.scannerTool.upsert({
+      where: { name: tool.name },
+      update: { enabled: true, version: "external-cli" },
+      create: {
+        name: tool.name,
+        version: "external-cli",
+        kind: tool.kind,
+        capabilities: tool.capabilities,
+      },
+    });
+  }
 }
 
 main().finally(() => prisma.$disconnect());

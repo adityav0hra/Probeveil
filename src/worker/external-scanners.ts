@@ -48,6 +48,12 @@ export async function runExternalScanners({
       ...(await runNuclei(selectNucleiTargets(job, endpoints), cancelled, job)),
     );
   }
+  if (await commandExists("nikto"))
+    findings.push(...(await runNikto(job.url, cancelled, job)));
+  if (await commandExists("testssl.sh"))
+    findings.push(...(await runTestSsl(job.url, cancelled, job)));
+  if (await commandExists("zap-baseline.py"))
+    findings.push(...(await runZapBaseline(job.url, cancelled, job)));
   return findings;
 }
 
@@ -125,6 +131,132 @@ async function commandExists(command: string) {
     return true;
   } catch {
     return false;
+  }
+}
+
+async function runNikto(
+  target: string,
+  cancelled: () => Promise<boolean>,
+  job: ScanJob,
+) {
+  if (job.mode === "QUICK") return [];
+  if (await cancelled()) throw new Error("Scan cancelled");
+  return runTextScanner({
+    args: ["-h", target, "-nointeractive", "-Tuning", "x"],
+    command: "nikto",
+    rule: "external/nikto-diagnostics",
+    scannerName: "Nikto",
+    target,
+    timeout: job.mode === "MAXIMUM" ? 180_000 : 90_000,
+  });
+}
+
+async function runTestSsl(
+  target: string,
+  cancelled: () => Promise<boolean>,
+  job: ScanJob,
+) {
+  if (await cancelled()) throw new Error("Scan cancelled");
+  return runTextScanner({
+    args: ["--warnings", "batch", "--fast", target],
+    command: "testssl.sh",
+    rule: "external/testssl-diagnostics",
+    scannerName: "testssl.sh",
+    target,
+    timeout: job.mode === "MAXIMUM" ? 180_000 : 90_000,
+  });
+}
+
+async function runZapBaseline(
+  target: string,
+  cancelled: () => Promise<boolean>,
+  job: ScanJob,
+) {
+  if (job.mode !== "MAXIMUM") return [];
+  if (await cancelled()) throw new Error("Scan cancelled");
+  return runTextScanner({
+    args: ["-t", target, "-J", "-", "-I"],
+    command: "zap-baseline.py",
+    rule: "external/zap-baseline-diagnostics",
+    scannerName: "OWASP ZAP Baseline",
+    target,
+    timeout: 240_000,
+  });
+}
+
+async function runTextScanner({
+  args,
+  command,
+  rule,
+  scannerName,
+  target,
+  timeout,
+}: {
+  args: string[];
+  command: string;
+  rule: string;
+  scannerName: string;
+  target: string;
+  timeout: number;
+}): Promise<FindingInput[]> {
+  try {
+    const { stdout, stderr } = await run(command, args, {
+      maxBuffer: 16 * 1024 * 1024,
+      timeout,
+    });
+    const output = [stdout, stderr].filter(Boolean).join("\n").trim();
+    if (!output) return [];
+    const severity = /critical/i.test(output)
+      ? "CRITICAL"
+      : /\bhigh\b/i.test(output)
+        ? "HIGH"
+        : /\bmedium\b|warning/i.test(output)
+          ? "MEDIUM"
+          : "INFO";
+    return [
+      {
+        affectedUrl: target,
+        category: "External scanner",
+        confidence: severity === "INFO" ? "INFORMATIONAL" : "PROBABLE",
+        cwe: "CWE-693",
+        description: `${scannerName} produced diagnostic output for ${target}.`,
+        evidence: [
+          {
+            content: output.slice(0, 50000),
+            title: `${scannerName} output`,
+            type: scannerName.toUpperCase().replaceAll(" ", "_"),
+          },
+        ],
+        fingerprint: createHash("sha256")
+          .update(`${rule}|${target}|${output.slice(0, 2000)}`)
+          .digest("hex"),
+        httpMethod: "GET",
+        impact:
+          "External scanner diagnostics can reveal additional misconfiguration, TLS, header or passive web-server issues.",
+        remediation:
+          "Review the attached scanner output, validate each signal against the target environment, fix confirmed issues and rerun Probeveil.",
+        references: ["https://owasp.org/www-project-web-security-testing-guide/"],
+        reproductionSteps: [
+          `Run ${scannerName} against ${target}.`,
+          "Review the normalized output in the evidence section.",
+          "Confirm affected routes/components and rerun Probeveil after remediation.",
+        ],
+        scannerName,
+        scannerRuleId: rule,
+        scannerVersion: "external-cli",
+        severity,
+        title: `${scannerName} diagnostics were recorded`,
+      },
+    ];
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        error: error instanceof Error ? error.message : String(error),
+        scanner: scannerName,
+        target,
+      }),
+    );
+    return [];
   }
 }
 

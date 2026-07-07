@@ -54,6 +54,12 @@ export async function POST(request: Request) {
   }
 
   const normalizedHash = urlFingerprint(normalizedUrl);
+  const authHeaders = scanAuthHeaders(parsed.data);
+  const features = {
+    apiDiscovery: parsed.data.apiDiscovery,
+    browserRendering: parsed.data.browserRendering,
+    screenshots: parsed.data.screenshotCapture,
+  };
   const duplicate = await db.scan.findFirst({
     orderBy: { createdAt: "desc" },
     where: {
@@ -96,6 +102,10 @@ export async function POST(request: Request) {
           hostname: new URL(normalizedUrl).hostname,
           inScope: true,
           kind: "PRIMARY",
+          metadata: {
+            authHeaders,
+            features,
+          },
           reason: "Submitted scan target",
           url: normalizedUrl,
         },
@@ -113,6 +123,8 @@ export async function POST(request: Request) {
         "passive",
         {
           mode: parsed.data.mode,
+          authHeaders,
+          features,
           scanId: scan.id,
           token,
           url: normalizedUrl,
@@ -144,7 +156,13 @@ export async function POST(request: Request) {
     db.auditLog.create({
       data: {
         action: "SCAN_CREATED",
-        metadata: { mode: parsed.data.mode, normalizedUrl },
+        metadata: {
+          authHeaderConfigured: Boolean(authHeaders.authorization),
+          cookieHeaderConfigured: Boolean(authHeaders.cookie),
+          features,
+          mode: parsed.data.mode,
+          normalizedUrl,
+        },
         resourceId: scan.id,
         resourceType: "Scan",
         userId: session.user.id,
@@ -163,6 +181,16 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json({ id: scan.id }, { status: 201 });
+}
+
+function scanAuthHeaders(data: {
+  authHeader?: string;
+  cookieHeader?: string;
+}) {
+  return {
+    ...(data.authHeader ? { authorization: data.authHeader } : {}),
+    ...(data.cookieHeader ? { cookie: data.cookieHeader } : {}),
+  };
 }
 
 function shouldUseBullMq() {

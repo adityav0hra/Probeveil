@@ -6,8 +6,14 @@ const engineNotes: Record<string, string> = {
     "Compares safe request variants to surface authorization, routing and parameter-handling anomalies.",
   Nuclei:
     "Runs template-based HTTP checks when the nuclei CLI is installed on the worker.",
+  Nikto:
+    "Runs web-server baseline diagnostics when the nikto CLI is installed on the worker.",
+  "OWASP ZAP Baseline":
+    "Runs passive DAST baseline checks in maximum mode when zap-baseline.py is installed.",
   "Probeveil Passive":
     "Built-in crawler and response analyzer for DNS, TLS, headers, cookies, CORS, CSP, routes and evidence.",
+  "testssl.sh":
+    "Runs TLS and certificate diagnostics when testssl.sh is installed on the worker.",
 };
 
 export default async function ScannersPage() {

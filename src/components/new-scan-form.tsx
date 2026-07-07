@@ -68,6 +68,52 @@ export function NewScanForm({
           ))}
         </div>
       </fieldset>
+      <fieldset className="rounded-xl border border-line bg-white/[.015] p-4">
+        <legend className="px-2 text-sm font-medium text-slate-200">
+          Advanced coverage
+        </legend>
+        <div className="grid gap-3 sm:grid-cols-3">
+          {[
+            ["browserRendering", "Browser rendering"],
+            ["apiDiscovery", "API discovery"],
+            ["screenshotCapture", "Screenshots"],
+          ].map(([name, label]) => (
+            <label
+              className="flex items-center gap-3 rounded-lg border border-line bg-black/20 px-3 py-2 text-sm text-slate-300"
+              key={name}
+            >
+              <input className="size-4 accent-signal" name={name} type="checkbox" />
+              {label}
+            </label>
+          ))}
+        </div>
+        <div className="mt-4 grid gap-4">
+          <label className="block">
+            <span className="text-sm font-medium text-slate-200">
+              Authorization header
+            </span>
+            <input
+              autoComplete="off"
+              className="input mt-2"
+              name="authHeader"
+              placeholder="Bearer ey..."
+              type="password"
+            />
+          </label>
+          <label className="block">
+            <span className="text-sm font-medium text-slate-200">
+              Cookie header
+            </span>
+            <input
+              autoComplete="off"
+              className="input mt-2"
+              name="cookieHeader"
+              placeholder="session=..."
+              type="password"
+            />
+          </label>
+        </div>
+      </fieldset>
       {error && (
         <p
           className="rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300"

@@ -470,12 +470,15 @@ function ReportsPanel({ scanId }: { scanId: string }) {
             Raw Evidence Archive
           </p>
           <p className="mt-1 text-xs leading-5 text-slate-500">
-            Evidence excerpts are included in the technical PDF. Archive
-            packaging is not generated for this scan.
+            Persisted findings, route inventory, evidence excerpts, stages,
+            reports and integrity metadata.
           </p>
-          <button className="button-secondary mt-3 px-3 py-2 text-xs" disabled>
+          <a
+            className="button-secondary mt-3 px-3 py-2 text-xs"
+            href={`/api/scans/${scanId}/evidence-archive`}
+          >
             Download archive
-          </button>
+          </a>
         </div>
       </div>
     </div>

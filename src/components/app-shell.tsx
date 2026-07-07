@@ -2,6 +2,7 @@ import Link from "next/link";
 import {
   Activity,
   ArrowLeft,
+  BellRing,
   FileText,
   GitFork,
   Inbox,
@@ -23,6 +24,7 @@ const nav = [
   ["/reports", "Reports", FileText],
   ["/contact-enquiries", "Enquiries", Inbox],
   ["/settings/scanners", "Scanners", Settings2],
+  ["/settings/automation", "Automation", BellRing],
   ["/audit", "Audit logs", ScrollText],
   ["/health", "System health", HeartPulse],
 ] as const;
