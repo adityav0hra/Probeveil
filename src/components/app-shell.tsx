@@ -1,51 +1,14 @@
 import Link from "next/link";
-import {
-  Activity,
-  ArrowLeft,
-  BellRing,
-  Boxes,
-  FileText,
-  GitFork,
-  Inbox,
-  HeartPulse,
-  KeyRound,
-  LayoutDashboard,
-  ListChecks,
-  PlugZap,
-  Radar,
-  ScrollText,
-  Settings2,
-  ShieldAlert,
-  ShieldPlus,
-  SlidersHorizontal,
-} from "lucide-react";
+import { Activity, ArrowLeft, BookOpenText, Plus } from "lucide-react";
 import { auth, signOut } from "@/lib/auth";
+import { ConsoleNav } from "./console-nav";
 import { Logo } from "./logo";
-
-const nav = [
-  ["/admin", "Overview", LayoutDashboard],
-  ["/scans/new", "New scan", ShieldPlus],
-  ["/issues", "Issues", ListChecks],
-  ["/assets", "Assets", Boxes],
-  ["/attack-surface", "Attack surface", Radar],
-  ["/attack-paths", "Attack paths", GitFork],
-  ["/reports", "Reports", FileText],
-  ["/contact-enquiries", "Enquiries", Inbox],
-  ["/settings/profiles", "Profiles", SlidersHorizontal],
-  ["/settings/vault", "Secrets vault", KeyRound],
-  ["/settings/safety", "Safety", ShieldAlert],
-  ["/settings/scanners", "Scanners", Settings2],
-  ["/settings/integrations", "Integrations", PlugZap],
-  ["/settings/automation", "Automation", BellRing],
-  ["/audit", "Audit logs", ScrollText],
-  ["/health", "System health", HeartPulse],
-] as const;
 
 export async function AppShell({ children }: { children: React.ReactNode }) {
   const session = await auth();
   return (
-    <div className="min-h-screen bg-ink lg:grid lg:grid-cols-[236px_1fr]">
-      <aside className="hidden border-r border-line bg-panel p-5 lg:flex lg:flex-col">
+    <div className="min-h-screen bg-ink lg:grid lg:grid-cols-[260px_1fr]">
+      <aside className="hidden h-screen border-r border-line bg-panel p-5 lg:flex lg:flex-col">
         <Logo />
         <Link
           href="/"
@@ -54,18 +17,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
           <ArrowLeft size={14} />
           Back to home
         </Link>
-        <nav className="mt-8 space-y-1">
-          {nav.map(([href, label, Icon]) => (
-            <Link
-              key={href}
-              href={href}
-              className="flex items-center gap-3 rounded-md px-3 py-2.5 text-sm text-slate-400 transition hover:bg-white/[.03] hover:text-white"
-            >
-              <Icon size={16} />
-              {label}
-            </Link>
-          ))}
-        </nav>
+        <ConsoleNav />
         <div className="mt-auto border-t border-line pt-4">
           <div className="text-sm text-slate-300">
             {session?.user.name ?? session?.user.email}
@@ -90,11 +42,30 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
           <div className="lg:hidden">
             <Logo />
           </div>
-          <div className="ml-auto flex items-center gap-2 text-xs text-slate-500">
-            <Activity size={14} className="text-signal" />
-            Control plane online
+          <div className="hidden items-center gap-3 text-xs text-slate-500 lg:flex">
+            <span className="rounded-full border border-line px-3 py-1">
+              Admin console
+            </span>
+            <span>Operational workspace</span>
+          </div>
+          <div className="ml-auto flex items-center gap-2 rounded-full border border-line px-3 py-1 text-xs text-slate-500">
+            <Activity size={13} className="text-signal" />
+            Online
           </div>
         </header>
+        <div className="flex gap-2 border-b border-line bg-panel px-5 py-3 lg:hidden">
+          <Link
+            className="button-secondary flex-1 px-3 py-2 text-xs"
+            href="/instructions"
+          >
+            <BookOpenText size={14} />
+            Instructions
+          </Link>
+          <Link className="button flex-1 px-3 py-2 text-xs" href="/scans/new">
+            <Plus size={14} />
+            New scan
+          </Link>
+        </div>
         <div className="mx-auto max-w-[1440px] p-5 lg:p-8">{children}</div>
       </main>
     </div>

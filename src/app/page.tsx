@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowRight, BookOpen, LockKeyhole, Mail } from "lucide-react";
+import { ArrowRight, LockKeyhole, Mail } from "lucide-react";
 import { auth } from "@/lib/auth";
 
 const signals = [
@@ -38,20 +38,13 @@ export default async function HomePage() {
             </Link>
             <nav className="flex items-center gap-2">
               <Link
-                className="button-secondary hidden sm:inline-flex"
-                href="/instructions"
-              >
-                <BookOpen size={15} />
-                Instructions
-              </Link>
-              <Link
-                className="button-secondary hidden sm:inline-flex"
+                className="button hidden px-5 sm:inline-flex"
                 href="/contact"
               >
                 <Mail size={15} />
                 Contact
               </Link>
-              <Link className="button" href={adminHref}>
+              <Link className="button-secondary" href={adminHref}>
                 {adminLabel}
                 {session ? <ArrowRight size={15} /> : <LockKeyhole size={15} />}
               </Link>
@@ -70,17 +63,13 @@ export default async function HomePage() {
               review, issue tracking, scheduling and report delivery.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <Link className="button" href={adminHref}>
+              <Link className="button px-6 py-3 text-base" href="/contact">
+                Contact Probeveil
+                <Mail size={17} />
+              </Link>
+              <Link className="button-secondary px-5 py-3" href={adminHref}>
                 {adminLabel}
                 {session ? <ArrowRight size={16} /> : <LockKeyhole size={16} />}
-              </Link>
-              <Link className="button-secondary" href="/instructions">
-                Instructions
-                <BookOpen size={16} />
-              </Link>
-              <Link className="button-secondary" href="/contact">
-                Contact
-                <Mail size={16} />
               </Link>
             </div>
           </div>
