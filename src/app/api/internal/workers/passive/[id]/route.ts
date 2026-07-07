@@ -37,6 +37,8 @@ export async function POST(
     where: { queueJobId: `serverless:${id}` },
     update: {
       attempts: { increment: 1 },
+      completedAt: null,
+      lastError: null,
       startedAt: new Date(),
       status: "RUNNING",
     },
@@ -86,7 +88,7 @@ export async function POST(
     await runPassive(job, emit, cancelled);
     await db.workerJob.updateMany({
       where: { scanId: id, status: "RUNNING" },
-      data: { completedAt: new Date(), status: "COMPLETED" },
+      data: { completedAt: new Date(), lastError: null, status: "COMPLETED" },
     });
     return NextResponse.json({ ok: true });
   } catch (error) {
