@@ -177,213 +177,223 @@ export async function POST(
     return NextResponse.json({ ok: true, skipped: "cancelled" });
 
   try {
-  if (event.type === "stage") {
-    await db.$transaction([
-      db.scan.update({
-        where: { id },
-        data: { status: "RUNNING", startedAt: { set: new Date() } },
-      }),
-      db.scanStage.update({
-        where: { scanId_key: { scanId: id, key: event.key } },
-        data: {
-          status: event.status,
-          progress: event.progress ?? (event.status === "COMPLETED" ? 100 : 0),
-          message: event.message,
-          ...(event.status === "RUNNING"
-            ? { startedAt: new Date() }
-            : { completedAt: new Date() }),
-        },
-      }),
-    ]);
-  } else if (event.type === "endpoints") {
-    await db.$transaction(async (tx) => {
-      for (const endpoint of event.endpoints) {
-        await tx.endpoint.upsert({
-          where: {
-            scanId_url_method: {
-              scanId: id,
-              url: endpoint.url,
-              method: endpoint.method,
-            },
+    if (event.type === "stage") {
+      await db.$transaction([
+        db.scan.update({
+          where: { id },
+          data: { status: "RUNNING", startedAt: { set: new Date() } },
+        }),
+        db.scanStage.update({
+          where: { scanId_key: { scanId: id, key: event.key } },
+          data: {
+            status: event.status,
+            progress:
+              event.progress ?? (event.status === "COMPLETED" ? 100 : 0),
+            message: event.message,
+            ...(event.status === "RUNNING"
+              ? { startedAt: new Date() }
+              : { completedAt: new Date() }),
           },
-          update: endpoint,
-          create: { scanId: id, ...endpoint },
-        });
-      }
-    }, transactionOptions);
-  } else if (event.type === "parameters") {
-    await db.$transaction(async (tx) => {
-      for (const parameter of event.parameters) {
-        const endpoint = await tx.endpoint.upsert({
-          where: {
-            scanId_url_method: {
+        }),
+      ]);
+    } else if (event.type === "endpoints") {
+      await db.$transaction(async (tx) => {
+        for (const endpoint of event.endpoints) {
+          await tx.endpoint.upsert({
+            where: {
+              scanId_url_method: {
+                scanId: id,
+                url: endpoint.url,
+                method: endpoint.method,
+              },
+            },
+            update: endpoint,
+            create: { scanId: id, ...endpoint },
+          });
+        }
+      }, transactionOptions);
+    } else if (event.type === "parameters") {
+      await db.$transaction(async (tx) => {
+        for (const parameter of event.parameters) {
+          const endpoint = await tx.endpoint.upsert({
+            where: {
+              scanId_url_method: {
+                scanId: id,
+                url: parameter.endpointUrl,
+                method: parameter.method,
+              },
+            },
+            update: {},
+            create: {
               scanId: id,
               url: parameter.endpointUrl,
               method: parameter.method,
+              depth: 0,
+              tested: false,
+              external: false,
+              discoveredBy: "parameter-inventory",
             },
-          },
-          update: {},
-          create: {
-            scanId: id,
-            url: parameter.endpointUrl,
-            method: parameter.method,
-            depth: 0,
-            tested: false,
-            external: false,
-            discoveredBy: "parameter-inventory",
-          },
-        });
-        await tx.parameter.upsert({
-          where: {
-            endpointId_name_location: {
+          });
+          await tx.parameter.upsert({
+            where: {
+              endpointId_name_location: {
+                endpointId: endpoint.id,
+                name: parameter.name,
+                location: parameter.location,
+              },
+            },
+            update: {
+              dataType: parameter.dataType,
+              tested: parameter.tested,
+            },
+            create: {
               endpointId: endpoint.id,
               name: parameter.name,
               location: parameter.location,
+              dataType: parameter.dataType,
+              tested: parameter.tested,
+            },
+          });
+        }
+      }, transactionOptions);
+    } else if (event.type === "services") {
+      await db.service.createMany({
+        data: event.services.map((service) => ({ scanId: id, ...service })),
+        skipDuplicates: true,
+      });
+    } else if (event.type === "technologies") {
+      await db.$transaction(async (tx) => {
+        for (const technology of event.technologies) {
+          const version = technology.version ?? "detected";
+          await tx.technology.upsert({
+            where: {
+              scanId_name_version: {
+                scanId: id,
+                name: technology.name,
+                version,
+              },
+            },
+            update: { ...technology, version },
+            create: { scanId: id, ...technology, version },
+          });
+        }
+      }, transactionOptions);
+    } else if (event.type === "findings") {
+      for (const finding of event.findings) {
+        const { evidence, reproductionSteps, references, ...data } = finding;
+        await db.finding.upsert({
+          where: {
+            scanId_fingerprint: {
+              scanId: id,
+              fingerprint: finding.fingerprint,
             },
           },
-          update: {
-            dataType: parameter.dataType,
-            tested: parameter.tested,
-          },
+          update: { ...data },
           create: {
-            endpointId: endpoint.id,
-            name: parameter.name,
-            location: parameter.location,
-            dataType: parameter.dataType,
-            tested: parameter.tested,
+            scanId: id,
+            ...data,
+            scannerName: data.scannerName ?? "Probeveil Passive",
+            scannerVersion: data.scannerVersion ?? "1.0.0",
+            reproductionSteps,
+            references,
+            evidence: {
+              create: evidence.map((item) => ({
+                ...item,
+                sha256: createHash("sha256").update(item.content).digest("hex"),
+              })),
+            },
           },
         });
       }
-    }, transactionOptions);
-  } else if (event.type === "services") {
-    await db.service.createMany({
-      data: event.services.map((service) => ({ scanId: id, ...service })),
-      skipDuplicates: true,
-    });
-  } else if (event.type === "technologies") {
-    await db.$transaction(async (tx) => {
-      for (const technology of event.technologies) {
-        const version = technology.version ?? "detected";
-        await tx.technology.upsert({
-          where: {
-            scanId_name_version: { scanId: id, name: technology.name, version },
-          },
-          update: { ...technology, version },
-          create: { scanId: id, ...technology, version },
-        });
-      }
-    }, transactionOptions);
-  } else if (event.type === "findings") {
-    for (const finding of event.findings) {
-      const { evidence, reproductionSteps, references, ...data } = finding;
-      await db.finding.upsert({
-        where: {
-          scanId_fingerprint: { scanId: id, fingerprint: finding.fingerprint },
-        },
-        update: { ...data },
-        create: {
-          scanId: id,
-          ...data,
-          scannerName: data.scannerName ?? "Probeveil Passive",
-          scannerVersion: data.scannerVersion ?? "1.0.0",
-          reproductionSteps,
-          references,
-          evidence: {
-            create: evidence.map((item) => ({
-              ...item,
-              sha256: createHash("sha256").update(item.content).digest("hex"),
-            })),
+    } else if (event.type === "artifacts") {
+      await db.$transaction(async (tx) => {
+        if (event.replace)
+          await tx.evidenceArtifact.deleteMany({
+            where: {
+              scanId: id,
+              type: {
+                in: [...new Set(event.artifacts.map((item) => item.type))],
+              },
+            },
+          });
+        if (event.artifacts.length)
+          await tx.evidenceArtifact.createMany({
+            data: event.artifacts.map((artifact) => {
+              const { metadata, ...data } = artifact;
+              return {
+                scanId: id,
+                ...data,
+                metadata: metadata as Prisma.InputJsonValue | undefined,
+              };
+            }),
+          });
+      }, transactionOptions);
+    } else if (event.type === "failed") {
+      await db.scan.update({
+        where: { id },
+        data: {
+          status: "FAILED",
+          error: event.error ?? "Worker failed",
+          completedAt: new Date(),
+          stages: {
+            updateMany: {
+              where: { status: { in: ["PENDING", "RUNNING"] } },
+              data: { status: "FAILED", completedAt: new Date() },
+            },
           },
         },
       });
-    }
-  } else if (event.type === "artifacts") {
-    await db.$transaction(async (tx) => {
-      if (event.replace)
-        await tx.evidenceArtifact.deleteMany({
-          where: {
-            scanId: id,
-            type: {
-              in: [...new Set(event.artifacts.map((item) => item.type))],
+      await markTargetedRetestScanFailed(id, event.error ?? "Worker failed");
+      await safelyProcessScanNotifications(id);
+      await safelyProcessScanIntegrations(id);
+    } else {
+      const [findings, stages, endpointCount, tested] = await Promise.all([
+        db.finding.findMany({
+          where: { scanId: id },
+          select: { severity: true, confidence: true },
+        }),
+        db.scanStage.groupBy({
+          by: ["status"],
+          where: { scanId: id },
+          _count: true,
+        }),
+        db.endpoint.count({ where: { scanId: id } }),
+        db.endpoint.count({ where: { scanId: id, tested: true } }),
+      ]);
+      const completed =
+        stages.find((x) => x.status === "COMPLETED")?._count ?? 0;
+      const total = stages.reduce((sum, x) => sum + x._count, 0);
+      await db.scan.update({
+        where: { id },
+        data: {
+          status: "COMPLETED",
+          finalUrl: event.finalUrl,
+          securityScore: calculateSecurityScore(findings),
+          coverageScore: calculateCoverageScore({
+            completedStages: completed,
+            totalStages: total,
+            endpointsTested: tested,
+            endpointsDiscovered: endpointCount,
+          }),
+          completedAt: new Date(),
+          reports: {
+            createMany: {
+              data: [
+                { type: "JSON" },
+                { type: "EXECUTIVE_HTML" },
+                { type: "TECHNICAL_HTML" },
+              ],
             },
           },
-        });
-      if (event.artifacts.length)
-        await tx.evidenceArtifact.createMany({
-          data: event.artifacts.map((artifact) => {
-            const { metadata, ...data } = artifact;
-            return {
-              scanId: id,
-              ...data,
-              metadata: metadata as Prisma.InputJsonValue | undefined,
-            };
-          }),
-        });
-    }, transactionOptions);
-  } else if (event.type === "failed") {
-    await db.scan.update({
-      where: { id },
-      data: {
-        status: "FAILED",
-        error: event.error ?? "Worker failed",
-        completedAt: new Date(),
-        stages: {
-          updateMany: {
-            where: { status: { in: ["PENDING", "RUNNING"] } },
-            data: { status: "FAILED", completedAt: new Date() },
-          },
         },
-      },
-    });
-    await markTargetedRetestScanFailed(id, event.error ?? "Worker failed");
-    await safelyProcessScanNotifications(id);
-    await safelyProcessScanIntegrations(id);
-  } else {
-    const [findings, stages, endpointCount, tested] = await Promise.all([
-      db.finding.findMany({
-        where: { scanId: id },
-        select: { severity: true, confidence: true },
-      }),
-      db.scanStage.groupBy({
-        by: ["status"],
-        where: { scanId: id },
-        _count: true,
-      }),
-      db.endpoint.count({ where: { scanId: id } }),
-      db.endpoint.count({ where: { scanId: id, tested: true } }),
-    ]);
-    const completed = stages.find((x) => x.status === "COMPLETED")?._count ?? 0;
-    const total = stages.reduce((sum, x) => sum + x._count, 0);
-    await db.scan.update({
-      where: { id },
-      data: {
-        status: "COMPLETED",
-        finalUrl: event.finalUrl,
-        securityScore: calculateSecurityScore(findings),
-        coverageScore: calculateCoverageScore({
-          completedStages: completed,
-          totalStages: total,
-          endpointsTested: tested,
-          endpointsDiscovered: endpointCount,
-        }),
-        completedAt: new Date(),
-        reports: {
-          createMany: {
-            data: [
-              { type: "JSON" },
-              { type: "EXECUTIVE_HTML" },
-              { type: "TECHNICAL_HTML" },
-            ],
-          },
-        },
-      },
-    });
-    await evaluateTargetedRetest(id);
-    await safelyUpdateAssetInventory(id);
-    await safelyAssignFindingIssues(id);
-    await safelyProcessScanNotifications(id);
-    await safelyProcessScanIntegrations(id);
-  }
+      });
+      await evaluateTargetedRetest(id);
+      await safelyUpdateCredentialValidation(id);
+      await safelyUpdateAssetInventory(id);
+      await safelyAssignFindingIssues(id);
+      await safelyProcessScanNotifications(id);
+      await safelyProcessScanIntegrations(id);
+    }
   } catch (error) {
     console.error("Scan event processing failed", {
       error: error instanceof Error ? error.message : String(error),
@@ -409,6 +419,95 @@ async function safelyUpdateAssetInventory(scanId: string) {
     console.error("Asset inventory update failed", {
       error: error instanceof Error ? error.message : String(error),
       scanId,
+    });
+  }
+}
+
+async function safelyUpdateCredentialValidation(scanId: string) {
+  try {
+    await updateCredentialValidation(scanId);
+  } catch (error) {
+    console.error("Credential validation update failed", {
+      error: error instanceof Error ? error.message : String(error),
+      scanId,
+    });
+  }
+}
+
+async function updateCredentialValidation(scanId: string) {
+  const scan = await db.scan.findUnique({
+    include: {
+      findings: {
+        select: { scannerRuleId: true },
+        where: {
+          scannerRuleId: {
+            in: [
+              "coverage/authenticated-verified",
+              "coverage/authenticated-not-verified",
+            ],
+          },
+        },
+      },
+      targets: {
+        select: { metadata: true },
+        take: 1,
+        where: { kind: "PRIMARY" },
+      },
+    },
+    where: { id: scanId },
+  });
+  const metadata = scan?.targets[0]?.metadata;
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata))
+    return;
+  const auth = "auth" in metadata ? metadata.auth : undefined;
+  const primaryId =
+    auth && typeof auth === "object" && !Array.isArray(auth)
+      ? (auth as Record<string, unknown>).credentialProfileId
+      : undefined;
+  const comparisonProfiles =
+    "comparisonProfiles" in metadata &&
+    Array.isArray(metadata.comparisonProfiles)
+      ? metadata.comparisonProfiles
+      : [];
+  const comparisonIds = comparisonProfiles
+    .map((profile) =>
+      profile && typeof profile === "object" && !Array.isArray(profile)
+        ? (profile as Record<string, unknown>).credentialProfileId
+        : undefined,
+    )
+    .filter(
+      (item): item is string => typeof item === "string" && Boolean(item),
+    );
+  const verified = scan.findings.some(
+    (finding) => finding.scannerRuleId === "coverage/authenticated-verified",
+  );
+  const attempted = scan.findings.some((finding) =>
+    finding.scannerRuleId.startsWith("coverage/authenticated-"),
+  );
+  if (typeof primaryId === "string" && primaryId) {
+    await db.authCredentialProfile.updateMany({
+      data: {
+        lastValidatedAt: new Date(),
+        lastValidationMessage: attempted
+          ? verified
+            ? "Authenticated scan verified signed-in access."
+            : "Authenticated scan did not verify signed-in access."
+          : "Credential profile was attached, but authenticated verification did not run.",
+        lastValidationScanId: scanId,
+        lastValidationStatus: verified ? "SUCCESS" : "FAILED",
+      },
+      where: { id: primaryId },
+    });
+  }
+  if (comparisonIds.length) {
+    await db.authCredentialProfile.updateMany({
+      data: {
+        lastValidatedAt: new Date(),
+        lastValidationMessage: "Used for role comparison in a completed scan.",
+        lastValidationScanId: scanId,
+        lastValidationStatus: "USED",
+      },
+      where: { id: { in: comparisonIds } },
     });
   }
 }

@@ -210,11 +210,40 @@ model User {
   sessions                 Session[]
   scans                    Scan[]
   scanSchedules            ScanSchedule[]
+  authCredentialProfiles   AuthCredentialProfile[]
   reviews                  FindingReview[]
   auditLogs                AuditLog[]
   assignedContactEnquiries ContactEnquiry[] @relation("AssignedContactEnquiries")
   createdAt                DateTime         @default(now())
   updatedAt                DateTime         @updatedAt
+}
+
+model AuthCredentialProfile {
+  id                      String    @id @default(cuid())
+  userId                  String
+  user                    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name                    String
+  role                    String    @default("CUSTOM")
+  targetOrigin            String?   @db.Text
+  targetHostname          String?
+  encryptedPayload        String    @db.Text
+  payloadFingerprint      String
+  verificationPath        String?   @db.Text
+  expectedTextConfigured  Boolean   @default(false)
+  routeSeedCount          Int       @default(0)
+  expiresAt               DateTime?
+  reminderDaysBefore      Int       @default(7)
+  lastValidatedAt         DateTime?
+  lastValidationStatus    String?
+  lastValidationScanId    String?
+  lastValidationMessage   String?   @db.Text
+  enabled                 Boolean   @default(true)
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  @@index([enabled, expiresAt])
+  @@index([targetHostname])
+  @@index([userId, enabled])
 }
 
 model Account {

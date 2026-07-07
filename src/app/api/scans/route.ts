@@ -1,6 +1,11 @@
 import { after, NextResponse } from "next/server";
 import { ScanStatus } from "@prisma/client";
 import { requireRole } from "@/lib/auth";
+import {
+  authHeadersFromPayload,
+  authOptionsFromPayload,
+  decryptVaultPayload,
+} from "@/lib/auth-vault";
 import { db } from "@/lib/db";
 import { getScanQueue } from "@/lib/queue";
 import { scanPolicyFromProfile } from "@/lib/scan-profiles";
@@ -62,9 +67,30 @@ export async function POST(request: Request) {
     : null;
   const policy = profile ? scanPolicyFromProfile(profile) : null;
   const mode = policy?.mode ?? parsed.data.mode;
-  const authHeaders = scanAuthHeaders(parsed.data);
-  const auth = scanAuthOptions(parsed.data, policy?.authConfig);
-  const comparisonProfiles = scanComparisonProfiles(parsed.data);
+  let vaultSelections: Awaited<ReturnType<typeof loadVaultSelections>>;
+  try {
+    vaultSelections = await loadVaultSelections(parsed.data);
+  } catch (error) {
+    return scanErrorResponse(
+      request,
+      isJson,
+      error instanceof Error ? error.message : "Credential profile failed.",
+      parsed.data,
+    );
+  }
+  const authHeaders = {
+    ...vaultSelections.primary.authHeaders,
+    ...scanAuthHeaders(parsed.data),
+  };
+  const auth = scanAuthOptions(
+    parsed.data,
+    policy?.authConfig,
+    vaultSelections.primary.auth,
+  );
+  const comparisonProfiles = scanComparisonProfiles(
+    parsed.data,
+    vaultSelections.comparison,
+  );
   const features =
     policy?.features ??
     ({
@@ -117,6 +143,8 @@ export async function POST(request: Request) {
           kind: "PRIMARY",
           metadata: {
             auth: {
+              credentialProfileId: vaultSelections.primary.id,
+              credentialProfileName: vaultSelections.primary.name,
               contextName: auth.contextName,
               expectedTextConfigured: Boolean(auth.expectedText),
               routeSeeds: auth.routeSeeds,
@@ -125,6 +153,7 @@ export async function POST(request: Request) {
             authHeaderConfigured: Boolean(authHeaders.authorization),
             cookieHeaderConfigured: Boolean(authHeaders.cookie),
             comparisonProfiles: comparisonProfiles.map((profile) => ({
+              credentialProfileId: "id" in profile ? profile.id : undefined,
               name: profile.name,
               role: profile.role,
             })),
@@ -209,6 +238,10 @@ export async function POST(request: Request) {
           comparisonProfileRoles: comparisonProfiles.map(
             (profile) => profile.role,
           ),
+          credentialProfileIds: [
+            vaultSelections.primary.id,
+            ...vaultSelections.comparison.map((profile) => profile.id),
+          ].filter((item): item is string => typeof item === "string"),
           features,
           mode,
           normalizedUrl,
@@ -255,6 +288,12 @@ function scanAuthOptions(
     authVerificationPath?: string;
   },
   policyAuth?: Record<string, unknown>,
+  vaultAuth?: {
+    contextName?: string;
+    expectedText?: string;
+    routeSeeds?: string[];
+    verificationPath?: string;
+  },
 ) {
   const policyRouteSeeds = Array.isArray(policyAuth?.routeSeeds)
     ? policyAuth.routeSeeds.filter(
@@ -266,17 +305,27 @@ function scanAuthOptions(
       ? policyAuth.verificationPath
       : "";
   return {
+    ...(vaultAuth?.contextName ? { contextName: vaultAuth.contextName } : {}),
     ...(data.authContextName ? { contextName: data.authContextName } : {}),
+    ...(vaultAuth?.expectedText
+      ? { expectedText: vaultAuth.expectedText }
+      : {}),
     ...(data.authExpectedText ? { expectedText: data.authExpectedText } : {}),
     routeSeeds: [
       ...new Set([
         ...policyRouteSeeds,
+        ...(vaultAuth?.routeSeeds ?? []),
         ...routeSeedsFromText(data.authRouteSeeds ?? ""),
       ]),
     ].slice(0, 60),
-    ...(data.authVerificationPath || policyVerificationPath
+    ...(data.authVerificationPath ||
+    vaultAuth?.verificationPath ||
+    policyVerificationPath
       ? {
-          verificationPath: data.authVerificationPath || policyVerificationPath,
+          verificationPath:
+            data.authVerificationPath ||
+            vaultAuth?.verificationPath ||
+            policyVerificationPath,
         }
       : {}),
   };
@@ -284,6 +333,12 @@ function scanAuthOptions(
 
 function scanComparisonProfiles(
   data: Record<string, string | boolean | undefined>,
+  vaultProfiles: Array<{
+    authHeaders: Record<string, string>;
+    id?: string;
+    name: string;
+    role: "NORMAL_USER" | "ADMIN" | "USER_A" | "USER_B";
+  }> = [],
 ) {
   const profileSpecs = [
     ["normalUser", "Normal user", "NORMAL_USER"],
@@ -291,7 +346,7 @@ function scanComparisonProfiles(
     ["userA", "User A", "USER_A"],
     ["userB", "User B", "USER_B"],
   ] as const;
-  return profileSpecs.flatMap(([prefix, name, role]) => {
+  const manualProfiles = profileSpecs.flatMap(([prefix, name, role]) => {
     const authHeader = data[`${prefix}AuthHeader`];
     const cookieHeader = data[`${prefix}CookieHeader`];
     const authHeaders = {
@@ -304,6 +359,76 @@ function scanComparisonProfiles(
     };
     return Object.keys(authHeaders).length ? [{ authHeaders, name, role }] : [];
   });
+  const manualRoles = new Set(manualProfiles.map((profile) => profile.role));
+  return [
+    ...vaultProfiles.filter((profile) => !manualRoles.has(profile.role)),
+    ...manualProfiles,
+  ];
+}
+
+async function loadVaultSelections(data: {
+  authCredentialProfileId?: string;
+  normalUserCredentialProfileId?: string;
+  adminUserCredentialProfileId?: string;
+  userACredentialProfileId?: string;
+  userBCredentialProfileId?: string;
+}) {
+  const primary = data.authCredentialProfileId
+    ? await loadVaultProfile(data.authCredentialProfileId)
+    : emptyVaultSelection();
+  const comparisonSpecs = [
+    [data.normalUserCredentialProfileId, "NORMAL_USER"],
+    [data.adminUserCredentialProfileId, "ADMIN"],
+    [data.userACredentialProfileId, "USER_A"],
+    [data.userBCredentialProfileId, "USER_B"],
+  ] as const;
+  const comparison = (
+    await Promise.all(
+      comparisonSpecs.map(async ([id, role]) => {
+        if (!id) return undefined;
+        const selection = await loadVaultProfile(id);
+        return {
+          authHeaders: selection.authHeaders,
+          id: selection.id,
+          name: selection.name || roleLabel(role),
+          role,
+        };
+      }),
+    )
+  ).filter((item): item is NonNullable<typeof item> => Boolean(item));
+  return { comparison, primary };
+}
+
+async function loadVaultProfile(id: string) {
+  const profile = await db.authCredentialProfile.findFirst({
+    where: { enabled: true, id },
+  });
+  if (!profile) throw new Error("Credential profile not found.");
+  if (profile.expiresAt && profile.expiresAt.getTime() < Date.now())
+    throw new Error(`Credential profile "${profile.name}" is expired.`);
+  const payload = decryptVaultPayload(profile.encryptedPayload);
+  return {
+    auth: authOptionsFromPayload(payload),
+    authHeaders: authHeadersFromPayload(payload),
+    id: profile.id,
+    name: profile.name,
+  };
+}
+
+function emptyVaultSelection() {
+  return {
+    auth: {},
+    authHeaders: {},
+    id: undefined,
+    name: undefined,
+  };
+}
+
+function roleLabel(role: string) {
+  return role
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function routeSeedsFromText(value: string) {

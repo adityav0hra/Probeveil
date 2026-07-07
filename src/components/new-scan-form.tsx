@@ -12,6 +12,16 @@ const modes = [
 
 type ScanMode = (typeof modes)[number][0];
 
+type CredentialProfileOption = {
+  expiresAt: string | null;
+  id: string;
+  lastValidatedAt: string | null;
+  lastValidationStatus: string | null;
+  name: string;
+  role: string;
+  targetHostname: string | null;
+};
+
 export function isScanMode(
   value: string | null | undefined,
 ): value is ScanMode {
@@ -19,11 +29,13 @@ export function isScanMode(
 }
 
 export function NewScanForm({
+  credentialProfiles = [],
   error,
   initialMode = "FULL",
   initialUrl = "",
   profiles = [],
 }: {
+  credentialProfiles?: CredentialProfileOption[];
   error?: string;
   initialMode?: ScanMode;
   initialUrl?: string;
@@ -146,6 +158,25 @@ export function NewScanForm({
           ))}
         </div>
         <div className="mt-4 grid gap-4">
+          {credentialProfiles.length > 0 && (
+            <label className="block">
+              <span className="text-sm font-medium text-slate-200">
+                Stored authenticated profile
+              </span>
+              <select
+                className="input mt-2"
+                name="authCredentialProfileId"
+                defaultValue=""
+              >
+                <option value="">No stored profile</option>
+                {credentialProfiles.map((profile) => (
+                  <option key={profile.id} value={profile.id}>
+                    {profileLabel(profile)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <label className="block">
             <span className="text-sm font-medium text-slate-200">
               Authenticated context name
@@ -232,17 +263,38 @@ export function NewScanForm({
         </p>
         <div className="grid gap-4">
           {[
-            ["normalUser", "Normal user"],
-            ["adminUser", "Admin"],
-            ["userA", "User A"],
-            ["userB", "User B"],
-          ].map(([prefix, label]) => (
+            ["normalUser", "Normal user", "NORMAL_USER"],
+            ["adminUser", "Admin", "ADMIN"],
+            ["userA", "User A", "USER_A"],
+            ["userB", "User B", "USER_B"],
+          ].map(([prefix, label, role]) => (
             <div
               className="rounded-lg border border-line bg-black/20 p-3"
               key={prefix}
             >
               <p className="text-sm font-medium text-slate-200">{label}</p>
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                {credentialProfiles.length > 0 && (
+                  <select
+                    className="input sm:col-span-2"
+                    name={`${prefix}CredentialProfileId`}
+                    defaultValue=""
+                  >
+                    <option value="">
+                      No stored {label.toLowerCase()} profile
+                    </option>
+                    {credentialProfiles
+                      .filter(
+                        (profile) =>
+                          profile.role === role || profile.role === "CUSTOM",
+                      )
+                      .map((profile) => (
+                        <option key={profile.id} value={profile.id}>
+                          {profileLabel(profile)}
+                        </option>
+                      ))}
+                  </select>
+                )}
                 <input
                   autoComplete="off"
                   className="input"
@@ -280,4 +332,15 @@ export function NewScanForm({
 
 function enabledEngineCount(engines: Record<string, unknown>) {
   return Object.values(engines).filter(Boolean).length;
+}
+
+function profileLabel(profile: CredentialProfileOption) {
+  const scope = profile.targetHostname ? ` · ${profile.targetHostname}` : "";
+  const validation = profile.lastValidationStatus
+    ? ` · ${profile.lastValidationStatus.toLowerCase()}`
+    : "";
+  const expiry = profile.expiresAt
+    ? ` · expires ${profile.expiresAt.slice(0, 10)}`
+    : "";
+  return `${profile.name}${scope}${validation}${expiry}`;
 }

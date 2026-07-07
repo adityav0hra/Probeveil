@@ -15,6 +15,19 @@ export default async function NewScanPage({
     orderBy: { name: "asc" },
     where: { enabled: true },
   });
+  const credentialProfiles = await db.authCredentialProfile.findMany({
+    orderBy: [{ targetHostname: "asc" }, { name: "asc" }],
+    select: {
+      expiresAt: true,
+      id: true,
+      lastValidatedAt: true,
+      lastValidationStatus: true,
+      name: true,
+      role: true,
+      targetHostname: true,
+    },
+    where: { enabled: true },
+  });
 
   return (
     <div className="mx-auto max-w-3xl py-10 lg:py-20">
@@ -26,6 +39,15 @@ export default async function NewScanPage({
       </div>
       <section className="panel mt-10 p-6 sm:p-8">
         <NewScanForm
+          credentialProfiles={credentialProfiles.map((profile) => ({
+            expiresAt: profile.expiresAt?.toISOString() ?? null,
+            id: profile.id,
+            lastValidatedAt: profile.lastValidatedAt?.toISOString() ?? null,
+            lastValidationStatus: profile.lastValidationStatus,
+            name: profile.name,
+            role: profile.role,
+            targetHostname: profile.targetHostname,
+          }))}
           error={params.error}
           initialMode={initialMode}
           initialUrl={params.url ?? ""}

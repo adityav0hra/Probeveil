@@ -12,14 +12,29 @@ export const createScanSchema = z.object({
   authHeader: z.string().trim().max(2000).optional().default(""),
   authRouteSeeds: z.string().trim().max(6000).optional().default(""),
   authVerificationPath: z.string().trim().max(2048).optional().default(""),
+  authCredentialProfileId: z.string().trim().max(120).optional().default(""),
   normalUserAuthHeader: z.string().trim().max(2000).optional().default(""),
   normalUserCookieHeader: z.string().trim().max(4000).optional().default(""),
+  normalUserCredentialProfileId: z
+    .string()
+    .trim()
+    .max(120)
+    .optional()
+    .default(""),
   adminUserAuthHeader: z.string().trim().max(2000).optional().default(""),
   adminUserCookieHeader: z.string().trim().max(4000).optional().default(""),
+  adminUserCredentialProfileId: z
+    .string()
+    .trim()
+    .max(120)
+    .optional()
+    .default(""),
   userAAuthHeader: z.string().trim().max(2000).optional().default(""),
   userACookieHeader: z.string().trim().max(4000).optional().default(""),
+  userACredentialProfileId: z.string().trim().max(120).optional().default(""),
   userBAuthHeader: z.string().trim().max(2000).optional().default(""),
   userBCookieHeader: z.string().trim().max(4000).optional().default(""),
+  userBCredentialProfileId: z.string().trim().max(120).optional().default(""),
   browserRendering: z
     .union([z.literal("on"), z.boolean()])
     .optional()
@@ -38,19 +53,35 @@ export function normalizeUrlInput(input: string) {
   let value = input.trim();
   if (!/^[a-z][a-z\d+.-]*:\/\//i.test(value)) value = `https://${value}`;
   let url: URL;
-  try { url = new URL(value); } catch { throw new Error("Enter a valid website URL."); }
-  if (!['http:', 'https:'].includes(url.protocol)) throw new Error("Only HTTP and HTTPS websites can be scanned.");
-  if (url.username || url.password) throw new Error("URLs containing credentials are not accepted.");
-  if (!url.hostname || url.hostname.length > 253) throw new Error("Enter a valid hostname.");
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("Enter a valid website URL.");
+  }
+  if (!["http:", "https:"].includes(url.protocol))
+    throw new Error("Only HTTP and HTTPS websites can be scanned.");
+  if (url.username || url.password)
+    throw new Error("URLs containing credentials are not accepted.");
+  if (!url.hostname || url.hostname.length > 253)
+    throw new Error("Enter a valid hostname.");
   url.hash = "";
   url.hostname = url.hostname.toLowerCase();
-  if ((url.protocol === "https:" && url.port === "443") || (url.protocol === "http:" && url.port === "80")) url.port = "";
+  if (
+    (url.protocol === "https:" && url.port === "443") ||
+    (url.protocol === "http:" && url.port === "80")
+  )
+    url.port = "";
   if (url.pathname === "") url.pathname = "/";
   return url.toString();
 }
 
-export function urlFingerprint(url: string) { return createHash("sha256").update(url).digest("hex"); }
+export function urlFingerprint(url: string) {
+  return createHash("sha256").update(url).digest("hex");
+}
 
 export function isSameOriginOrSubdomain(candidate: URL, root: URL) {
-  return candidate.hostname === root.hostname || candidate.hostname.endsWith(`.${root.hostname}`);
+  return (
+    candidate.hostname === root.hostname ||
+    candidate.hostname.endsWith(`.${root.hostname}`)
+  );
 }
