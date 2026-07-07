@@ -32,7 +32,10 @@ new Worker<ScanJob>("scan.passive", async (queueJob) => {
   });
   const emit = async (event: unknown) => {
     const response = await fetch(`${api}/api/internal/scans/${job.scanId}/events`, { method: "POST", headers: { authorization: `Bearer ${job.token}`, "content-type": "application/json" }, body: JSON.stringify(event), signal: AbortSignal.timeout(15_000) });
-    if (!response.ok) throw new Error(`Control-plane event rejected (${response.status})`);
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new Error(`Control-plane event rejected (${response.status})${detail ? `: ${detail.slice(0, 500)}` : ""}`);
+    }
   };
   const cancelled = async () => {
     const response = await fetch(`${api}/api/internal/scans/${job.scanId}/status`, { headers: { authorization: `Bearer ${job.token}` }, signal: AbortSignal.timeout(5000) });

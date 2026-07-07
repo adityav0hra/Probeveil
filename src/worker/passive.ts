@@ -248,6 +248,12 @@ type ArchiveArtifactInput = {
   metadata?: Record<string, unknown>;
 };
 
+const artifactBatchSize = 10;
+const endpointBatchSize = 200;
+const httpExchangeBodyExcerptLimit = 12_000;
+const parameterBatchSize = 300;
+const screenshotBase64Limit = 1_500_000;
+
 export async function runPassive(
   job: ScanJob,
   emit: (event: unknown) => Promise<void>,
@@ -996,21 +1002,37 @@ export async function runPassive(
     }
   });
   await stage(emit, "correlate", async () => {
-    await emit({ type: "endpoints", endpoints: dedupeEndpoints(endpoints) });
-    if (parameters.size)
-      await emit({
-        type: "parameters",
-        parameters: [...parameters.values()].slice(0, 1000),
-      });
+    for (const endpointBatch of chunks(dedupeEndpoints(endpoints), endpointBatchSize))
+      await emit({ type: "endpoints", endpoints: endpointBatch });
+    for (const parameterBatch of chunks(
+      [...parameters.values()].slice(0, 1000),
+      parameterBatchSize,
+    ))
+      await emit({ type: "parameters", parameters: parameterBatch });
     const archiveArtifacts = buildArchiveArtifacts(
       artifacts,
       supplementalArtifacts,
     );
-    if (archiveArtifacts.length)
-      await emit({
-        type: "artifacts",
-        artifacts: archiveArtifacts,
-      });
+    try {
+      for (const [index, artifactBatch] of chunks(
+        archiveArtifacts,
+        artifactBatchSize,
+      ).entries())
+        await emit({
+          type: "artifacts",
+          replace: index === 0,
+          artifacts: artifactBatch,
+        });
+    } catch (error) {
+      console.warn(
+        JSON.stringify({
+          level: "warn",
+          message: "evidence artifact inventory delivery failed",
+          scanId: job.scanId,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
   });
   await stage(emit, "score", async () => undefined);
   await stage(emit, "report", async () => undefined);
@@ -3606,6 +3628,13 @@ function buildArchiveArtifacts(
   return [...httpArtifacts, ...supplementalArtifacts].slice(0, 100);
 }
 
+function chunks<T>(items: T[], size: number): T[][] {
+  const output: T[][] = [];
+  for (let index = 0; index < items.length; index += size)
+    output.push(items.slice(index, index + size));
+  return output;
+}
+
 function httpExchangeArtifactInput(
   item: PageArtifact,
   index: number,
@@ -3626,8 +3655,8 @@ function httpExchangeArtifactInput(
       contentType: item.contentType,
       bodyLength: bodyBuffer.byteLength,
       bodySha256,
-      bodyExcerpt: item.body.slice(0, 24_000),
-      bodyExcerptTruncated: item.body.length > 24_000,
+      bodyExcerpt: item.body.slice(0, httpExchangeBodyExcerptLimit),
+      bodyExcerptTruncated: item.body.length > httpExchangeBodyExcerptLimit,
     },
   };
   const content = JSON.stringify(exchange, null, 2);
@@ -3647,6 +3676,11 @@ function httpExchangeArtifactInput(
 function screenshotArtifactInput(
   screenshot: BrowserRenderedScreenshot,
 ): ArchiveArtifactInput {
+  const contentBase64 =
+    screenshot.contentBase64 &&
+    screenshot.contentBase64.length <= screenshotBase64Limit
+      ? screenshot.contentBase64
+      : undefined;
   return {
     name: screenshot.name,
     type: "SCREENSHOT",
@@ -3659,8 +3693,10 @@ function screenshotArtifactInput(
       url: screenshot.url,
       sha256: screenshot.sha256,
       size: screenshot.size,
-      contentBase64: screenshot.contentBase64,
-      archived: Boolean(screenshot.contentBase64),
+      contentBase64,
+      archived: Boolean(contentBase64),
+      contentOmitted:
+        Boolean(screenshot.contentBase64) && contentBase64 === undefined,
     },
   };
 }

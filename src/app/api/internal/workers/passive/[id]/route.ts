@@ -92,8 +92,12 @@ export async function POST(
         signal: AbortSignal.timeout(15_000),
       },
     );
-    if (!response.ok)
-      throw new Error(`Control-plane event rejected (${response.status})`);
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new Error(
+        `Control-plane event rejected (${response.status})${detail ? `: ${detail.slice(0, 500)}` : ""}`,
+      );
+    }
   };
   const cancelled = async () => {
     const latest = await db.scan.findUnique({

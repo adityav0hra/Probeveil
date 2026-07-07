@@ -114,6 +114,7 @@ const findingsEvent = z.object({
 });
 const artifactEvent = z.object({
   type: z.literal("artifacts"),
+  replace: z.boolean().default(true),
   artifacts: z
     .array(
       z.object({
@@ -173,6 +174,7 @@ export async function POST(
   if (scanState.status === "CANCELLED")
     return NextResponse.json({ ok: true, skipped: "cancelled" });
 
+  try {
   if (event.type === "stage") {
     await db.$transaction([
       db.scan.update({
@@ -295,12 +297,15 @@ export async function POST(
     }
   } else if (event.type === "artifacts") {
     await db.$transaction(async (tx) => {
-      await tx.evidenceArtifact.deleteMany({
-        where: {
-          scanId: id,
-          type: { in: [...new Set(event.artifacts.map((item) => item.type))] },
-        },
-      });
+      if (event.replace)
+        await tx.evidenceArtifact.deleteMany({
+          where: {
+            scanId: id,
+            type: {
+              in: [...new Set(event.artifacts.map((item) => item.type))],
+            },
+          },
+        });
       if (event.artifacts.length)
         await tx.evidenceArtifact.createMany({
           data: event.artifacts.map((artifact) => {
@@ -374,6 +379,21 @@ export async function POST(
     await evaluateTargetedRetest(id);
     await safelyProcessScanNotifications(id);
     await safelyProcessScanIntegrations(id);
+  }
+  } catch (error) {
+    console.error("Scan event processing failed", {
+      error: error instanceof Error ? error.message : String(error),
+      eventType: event.type,
+      scanId: id,
+    });
+    return NextResponse.json(
+      {
+        error: "Scan event processing failed",
+        eventType: event.type,
+        message: error instanceof Error ? error.message : String(error),
+      },
+      { status: 500 },
+    );
   }
   return NextResponse.json({ ok: true });
 }
