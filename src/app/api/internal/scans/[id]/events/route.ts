@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { processScanIntegrations } from "@/lib/integrations/providers";
 import { processScanNotifications } from "@/lib/notifications/scan-notifications";
 import { calculateCoverageScore, calculateSecurityScore } from "@/lib/scoring";
 import { verifyWorkerToken } from "@/lib/worker-token";
@@ -329,6 +330,7 @@ export async function POST(
     });
     await markTargetedRetestScanFailed(id, event.error ?? "Worker failed");
     await safelyProcessScanNotifications(id);
+    await safelyProcessScanIntegrations(id);
   } else {
     const [findings, stages, endpointCount, tested] = await Promise.all([
       db.finding.findMany({
@@ -371,6 +373,7 @@ export async function POST(
     });
     await evaluateTargetedRetest(id);
     await safelyProcessScanNotifications(id);
+    await safelyProcessScanIntegrations(id);
   }
   return NextResponse.json({ ok: true });
 }
@@ -380,6 +383,17 @@ async function safelyProcessScanNotifications(scanId: string) {
     await processScanNotifications(scanId);
   } catch (error) {
     console.error("Scan notification processing failed", {
+      error: error instanceof Error ? error.message : String(error),
+      scanId,
+    });
+  }
+}
+
+async function safelyProcessScanIntegrations(scanId: string) {
+  try {
+    await processScanIntegrations(scanId);
+  } catch (error) {
+    console.error("Scan integration processing failed", {
       error: error instanceof Error ? error.message : String(error),
       scanId,
     });

@@ -130,6 +130,30 @@ enum NotificationDeliveryStatus {
   FAILED
 }
 
+enum IntegrationProvider {
+  SLACK
+  DISCORD
+  TEAMS
+  JIRA
+  LINEAR
+  GITHUB
+  EMAIL
+}
+
+enum IntegrationEventType {
+  SCAN_SUMMARY
+  FAILED_SCAN
+  HIGH_SEVERITY_ALERT
+  HIGH_SEVERITY_FINDING
+}
+
+enum IntegrationDeliveryStatus {
+  NOT_CONFIGURED
+  SENT
+  FAILED
+  SKIPPED
+}
+
 model User {
   id                       String           @id @default(cuid())
   name                     String?
@@ -188,25 +212,25 @@ model VerificationToken {
 }
 
 model Scan {
-  id             String             @id @default(cuid())
+  id             String                @id @default(cuid())
   userId         String
-  user           User               @relation(fields: [userId], references: [id])
+  user           User                  @relation(fields: [userId], references: [id])
   scheduleId     String?
-  schedule       ScanSchedule?      @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  schedule       ScanSchedule?         @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
   profileId      String?
-  profile        ScanProfile?       @relation(fields: [profileId], references: [id], onDelete: SetNull)
-  originalUrl    String             @db.Text
-  normalizedUrl  String             @db.Text
-  finalUrl       String?            @db.Text
+  profile        ScanProfile?          @relation(fields: [profileId], references: [id], onDelete: SetNull)
+  originalUrl    String                @db.Text
+  normalizedUrl  String                @db.Text
+  finalUrl       String?               @db.Text
   normalizedHash String
   mode           ScanMode
-  status         ScanStatus         @default(QUEUED)
+  status         ScanStatus            @default(QUEUED)
   securityScore  Int?
   coverageScore  Int?
   startedAt      DateTime?
   completedAt    DateTime?
   cancelledAt    DateTime?
-  error          String?            @db.Text
+  error          String?               @db.Text
   stages         ScanStage[]
   targets        ScanTarget[]
   endpoints      Endpoint[]
@@ -218,9 +242,10 @@ model Scan {
   reports        Report[]
   artifacts      EvidenceArtifact[]
   notifications  ScanNotification[]
+  integrations   IntegrationDelivery[]
   jobs           WorkerJob[]
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
 
   @@index([status, createdAt])
   @@index([normalizedHash, status])
@@ -376,42 +401,43 @@ model Technology {
 }
 
 model Finding {
-  id                 String            @id @default(cuid())
+  id                 String                @id @default(cuid())
   scanId             String
-  scan               Scan              @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  scan               Scan                  @relation(fields: [scanId], references: [id], onDelete: Cascade)
   title              String
-  description        String            @db.Text
+  description        String                @db.Text
   category           String
   cwe                String?
   owaspCategory      String?
   severity           Severity
   confidence         Confidence
-  status             FindingStatus     @default(OPEN)
+  status             FindingStatus         @default(OPEN)
   cvssScore          Float?
-  affectedUrl        String?           @db.Text
+  affectedUrl        String?               @db.Text
   sourceFile         String?
   lineNumber         Int?
   httpMethod         String?
   parameter          String?
   component          String?
   userRole           String?
-  payload            String?           @db.Text
+  payload            String?               @db.Text
   scannerName        String
   scannerRuleId      String
   scannerVersion     String
   fingerprint        String
-  detectedAt         DateTime          @default(now())
+  detectedAt         DateTime              @default(now())
   reproductionSteps  Json
-  impact             String            @db.Text
-  remediation        String            @db.Text
+  impact             String                @db.Text
+  remediation        String                @db.Text
   references         Json
-  retestInstructions String?           @db.Text
-  adminNotes         String?           @db.Text
+  retestInstructions String?               @db.Text
+  adminNotes         String?               @db.Text
   evidence           FindingEvidence[]
   reviews            FindingReview[]
   retests            Retest[]
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
+  integrations       IntegrationDelivery[]
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
 
   @@unique([scanId, fingerprint])
   @@index([scanId, severity, status])
@@ -556,6 +582,30 @@ model ScanNotification {
   @@index([scanId, type])
   @@index([scheduleId, createdAt])
   @@index([status, createdAt])
+}
+
+model IntegrationDelivery {
+  id             String                    @id @default(cuid())
+  scanId         String?
+  scan           Scan?                     @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  findingId      String?
+  finding        Finding?                  @relation(fields: [findingId], references: [id], onDelete: Cascade)
+  provider       IntegrationProvider
+  eventType      IntegrationEventType
+  status         IntegrationDeliveryStatus @default(NOT_CONFIGURED)
+  target         String?
+  subject        String
+  payload        Json
+  externalId     String?
+  externalUrl    String?                   @db.Text
+  responseStatus Int?
+  error          String?                   @db.Text
+  sentAt         DateTime?
+  createdAt      DateTime                  @default(now())
+
+  @@index([scanId, eventType])
+  @@index([findingId, provider, eventType])
+  @@index([provider, status, createdAt])
 }
 
 model UploadedArtifact {
