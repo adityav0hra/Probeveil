@@ -104,24 +104,41 @@ export async function POST(request: Request) {
     },
   });
   const token = signWorkerToken(scan.id);
-  const job = await getScanQueue().add(
-    "passive",
-    {
-      mode: parsed.data.mode,
-      scanId: scan.id,
-      token,
-      url: normalizedUrl,
-    },
-    { jobId: scan.id },
-  );
+  let queueJobId = `serverless:${scan.id}`;
+  let workerType = "SERVERLESS_PASSIVE_HTTP";
+
+  if (shouldUseBullMq()) {
+    try {
+      const job = await getScanQueue().add(
+        "passive",
+        {
+          mode: parsed.data.mode,
+          scanId: scan.id,
+          token,
+          url: normalizedUrl,
+        },
+        { jobId: scan.id },
+      );
+      queueJobId = String(job.id);
+      workerType = "PASSIVE_HTTP";
+    } catch (error) {
+      console.warn(
+        JSON.stringify({
+          error: error instanceof Error ? error.message : String(error),
+          scanId: scan.id,
+          worker: "bullmq-enqueue-fallback",
+        }),
+      );
+    }
+  }
 
   await db.$transaction([
     db.workerJob.create({
       data: {
-        queueJobId: String(job.id),
+        queueJobId,
         scanId: scan.id,
         status: "QUEUED",
-        workerType: "PASSIVE_HTTP",
+        workerType,
       },
     }),
     db.auditLog.create({
@@ -135,7 +152,8 @@ export async function POST(request: Request) {
     }),
   ]);
 
-  schedulePassiveWorkerKick(request, scan.id, token);
+  if (workerType === "SERVERLESS_PASSIVE_HTTP")
+    schedulePassiveWorkerKick(request, scan.id, token);
 
   if (!isJson) {
     return NextResponse.redirect(
@@ -145,6 +163,17 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json({ id: scan.id }, { status: 201 });
+}
+
+function shouldUseBullMq() {
+  if (process.env.SCAN_QUEUE_DRIVER === "serverless") return false;
+  if (process.env.SCAN_QUEUE_DRIVER === "bullmq") return true;
+  if (process.env.VERCEL === "1") return false;
+  const redisUrl = process.env.REDIS_URL;
+  return Boolean(
+    redisUrl &&
+      !/^redis:\/\/(?:localhost|127\.0\.0\.1)(?::|\/|$)/i.test(redisUrl),
+  );
 }
 
 function schedulePassiveWorkerKick(request: Request, scanId: string, token: string) {
