@@ -706,6 +706,16 @@ export async function runPassive(
         technologies: [...technologies.values()],
       });
   });
+  await stage(emit, "role-compare", async () => {
+    findings.push(
+      ...(await compareRoleAccess({
+        authSeedUrls,
+        endpoints: dedupeEndpoints(endpoints),
+        job,
+        root,
+      })),
+    );
+  });
   await stage(emit, "evasion", async () => {
     findings.push(
       ...(await detectEvasionSignals({
@@ -2200,6 +2210,355 @@ function authenticatedCoverageFinding(
       },
     ],
   };
+}
+
+type RoleProfile = {
+  authHeaders?: Record<string, string>;
+  name: string;
+  role: NonNullable<ScanJob["comparisonProfiles"]>[number]["role"];
+};
+
+type RoleObservation = {
+  bodyHash?: string;
+  contentType?: string;
+  error?: string;
+  length?: number;
+  loginOrDenied: boolean;
+  profile: RoleProfile;
+  redirectedTo?: string;
+  status?: number;
+  title?: string;
+  url: string;
+};
+
+async function compareRoleAccess({
+  authSeedUrls,
+  endpoints,
+  job,
+  root,
+}: {
+  authSeedUrls: URL[];
+  endpoints: Endpoint[];
+  job: ScanJob;
+  root: URL;
+}): Promise<FindingInput[]> {
+  const profiles = roleProfiles(job);
+  if (profiles.length < 2) return [];
+  const targets = roleComparisonTargets(root, endpoints, authSeedUrls, job.mode);
+  if (!targets.length) return [];
+
+  const findings: FindingInput[] = [];
+  const observationsByTarget: Array<{ target: URL; rows: RoleObservation[] }> =
+    [];
+  for (const target of targets) {
+    const rows: RoleObservation[] = [];
+    for (const profile of profiles) {
+      rows.push(await roleObservation(root, target, profile));
+    }
+    observationsByTarget.push({ rows, target });
+    findings.push(...roleComparisonIssues(root, target, rows));
+  }
+
+  findings.unshift(roleComparisonSummary(root, profiles, observationsByTarget));
+  return dedupeFindings(findings).slice(0, 80);
+}
+
+function roleProfiles(job: ScanJob): RoleProfile[] {
+  const profiles: RoleProfile[] = [{ name: "Anonymous", role: "ANONYMOUS" }];
+  if (job.authHeaders && Object.keys(job.authHeaders).length)
+    profiles.push({
+      authHeaders: job.authHeaders,
+      name: job.auth?.contextName || "Primary authenticated context",
+      role: "CUSTOM",
+    });
+  for (const profile of job.comparisonProfiles ?? [])
+    if (profile.authHeaders && Object.keys(profile.authHeaders).length)
+      profiles.push(profile);
+  return [
+    ...new Map(
+      profiles.map((profile) => [
+        `${profile.role}:${profile.name}:${Object.keys(profile.authHeaders ?? {}).join(",")}`,
+        profile,
+      ]),
+    ).values(),
+  ];
+}
+
+function roleComparisonTargets(
+  root: URL,
+  endpoints: Endpoint[],
+  authSeedUrls: URL[],
+  mode: ScanJob["mode"],
+) {
+  const candidates = [
+    ...authSeedUrls,
+    ...endpoints
+      .filter((endpoint) => !endpoint.external)
+      .map((endpoint) => new URL(endpoint.url)),
+  ].filter((url) => isSameOriginOrSubdomain(url, root));
+  const priority = candidates.filter(
+    (url) => protectedPath(url) || objectLikeRoute(url) || HIGH_VALUE_ROUTE.test(url.pathname),
+  );
+  const selected = priority.length ? priority : candidates;
+  const limit = mode === "MAXIMUM" ? 50 : mode === "FULL" ? 25 : 10;
+  return [
+    ...new Map(selected.map((url) => [canonical(url), url])).values(),
+  ].slice(0, limit);
+}
+
+async function roleObservation(root: URL, target: URL, profile: RoleProfile) {
+  try {
+    const response = await safeFetch(target, root, {
+      authHeaders: profile.authHeaders ?? {},
+    });
+    return {
+      bodyHash: responseBodyHash(response),
+      contentType: response.contentType,
+      length: response.body.length,
+      loginOrDenied: looksLikeLoginOrDenied(response),
+      profile,
+      redirectedTo: response.url === target.toString() ? undefined : response.url,
+      status: response.status,
+      title:
+        response.body.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim() ??
+        undefined,
+      url: target.toString(),
+    };
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : String(error),
+      loginOrDenied: true,
+      profile,
+      url: target.toString(),
+    };
+  }
+}
+
+function roleComparisonIssues(
+  root: URL,
+  target: URL,
+  observations: RoleObservation[],
+) {
+  const findings: FindingInput[] = [];
+  const anonymous = observations.find(
+    (item) => item.profile.role === "ANONYMOUS",
+  );
+  const admin = observations.find((item) => item.profile.role === "ADMIN");
+  const lowerPrivilege = observations.filter((item) =>
+    ["NORMAL_USER", "USER_A", "USER_B"].includes(item.profile.role),
+  );
+  const successfulLower = lowerPrivilege.filter(isSuccessfulRoleObservation);
+
+  if (
+    protectedPath(target) &&
+    anonymous &&
+    isSuccessfulRoleObservation(anonymous)
+  )
+    findings.push(
+      roleFinding({
+        rule: "role-comparison/anonymous-protected-access",
+        target,
+        title: "Anonymous profile reached protected route candidate",
+        severity: "MEDIUM",
+        impact:
+          "A route that looks like a dashboard, account, admin, billing, export or user-data area responded successfully to an anonymous profile.",
+        remediation:
+          "Confirm whether this route is intentionally public. If not, enforce authentication before serving route data or actions.",
+        observations,
+      }),
+    );
+
+  if (
+    admin &&
+    isSuccessfulRoleObservation(admin) &&
+    successfulLower.length &&
+    adminLikeRoute(target)
+  )
+    findings.push(
+      roleFinding({
+        rule: "role-comparison/lower-privileged-admin-route-access",
+        target,
+        title: "Lower-privileged profile reached admin-like route",
+        severity: "MEDIUM",
+        impact:
+          "A lower-privileged profile received a successful response from a route that appears administrative or security-sensitive.",
+        remediation:
+          "Compare server-side authorization for the affected route across admin and non-admin roles. Do not rely on hidden UI controls alone.",
+        observations,
+      }),
+    );
+
+  const userA = observations.find((item) => item.profile.role === "USER_A");
+  const userB = observations.find((item) => item.profile.role === "USER_B");
+  if (
+    userA &&
+    userB &&
+    objectLikeRoute(target) &&
+    isSuccessfulRoleObservation(userA) &&
+    isSuccessfulRoleObservation(userB)
+  )
+    findings.push(
+      roleFinding({
+        rule: "role-comparison/cross-account-object-access",
+        target,
+        title: "Cross-account object access needs review",
+        severity: "MEDIUM",
+        impact:
+          "Both User A and User B received successful responses from an object-like route. This can indicate legitimate shared data or an IDOR/cross-account isolation gap.",
+        remediation:
+          "Verify object ownership and tenant checks server-side. Test User B against User A-owned identifiers and confirm sensitive fields are not exposed.",
+        observations,
+      }),
+    );
+
+  return findings;
+}
+
+function roleComparisonSummary(
+  root: URL,
+  profiles: RoleProfile[],
+  observationsByTarget: Array<{ target: URL; rows: RoleObservation[] }>,
+): FindingInput {
+  const evidence = observationsByTarget
+    .slice(0, 25)
+    .map(
+      ({ target, rows }) =>
+        [
+          `target=${target.toString()}`,
+          ...rows.map(renderRoleObservation),
+        ].join("\n"),
+    )
+    .join("\n\n");
+  return {
+    title: "Role comparison was performed",
+    description:
+      "Probeveil compared anonymous and configured authenticated profiles across protected and object-like routes to prioritize broken access control, IDOR and cross-account isolation review.",
+    category: "Role comparison",
+    cwe: "CWE-284",
+    owaspCategory: "Broken Access Control",
+    severity: "INFO",
+    confidence: "INFORMATIONAL",
+    affectedUrl: root.toString(),
+    httpMethod: "GET",
+    scannerName: "Probeveil Role Comparator",
+    scannerRuleId: "role-comparison/summary",
+    scannerVersion: "1.0.0",
+    fingerprint: createHash("sha256")
+      .update(
+        `role-comparison/summary|${root.toString()}|${profiles.map((profile) => profile.role).join(",")}`,
+      )
+      .digest("hex"),
+    impact:
+      "Role comparison gives reviewers evidence about which profiles could reach sensitive surfaces. It is strongest when User A and User B represent separate accounts or tenants.",
+    remediation:
+      "Review any role-comparison findings, then add more exact owned-object URLs to authenticated route seeds for deeper IDOR validation.",
+    reproductionSteps: [
+      "Configure normal user, admin, User A and User B sessions in New Scan.",
+      "Seed protected object URLs such as invoices, account records, exports, settings or user-data pages.",
+      "Compare status, redirects, titles and hashes across profiles.",
+      "Manually confirm whether successful lower-privilege or cross-account responses expose sensitive data or actions.",
+    ],
+    references: [
+      "https://owasp.org/Top10/A01_2021-Broken_Access_Control/",
+      "https://owasp.org/API-Security/editions/2023/en/0xa1-broken-object-level-authorization/",
+    ],
+    evidence: [
+      {
+        type: "ROLE_COMPARISON",
+        title: "Role comparison matrix",
+        content: evidence || "No comparison rows were captured.",
+      },
+    ],
+  };
+}
+
+function roleFinding({
+  impact,
+  observations,
+  remediation,
+  rule,
+  severity,
+  target,
+  title,
+}: {
+  impact: string;
+  observations: RoleObservation[];
+  remediation: string;
+  rule: string;
+  severity: FindingInput["severity"];
+  target: URL;
+  title: string;
+}): FindingInput {
+  return {
+    title,
+    description:
+      "Probeveil observed a role-comparison pattern that commonly maps to broken access control, privilege boundary mistakes, IDOR or cross-account leakage. This is a manual-review finding because the response summaries intentionally avoid exporting private page bodies.",
+    category: "Role comparison",
+    cwe: "CWE-284",
+    owaspCategory: "Broken Access Control",
+    severity,
+    confidence: "MANUAL_REVIEW",
+    affectedUrl: target.toString(),
+    httpMethod: "GET",
+    scannerName: "Probeveil Role Comparator",
+    scannerRuleId: rule,
+    scannerVersion: "1.0.0",
+    fingerprint: createHash("sha256")
+      .update(`${rule}|${target.toString()}`)
+      .digest("hex"),
+    impact,
+    remediation,
+    reproductionSteps: [
+      `Open or replay ${target.toString()} as each configured profile.`,
+      "Confirm expected behavior for anonymous, normal user, admin, User A and User B.",
+      "For object-like URLs, verify ownership and tenant checks with records that belong to different users.",
+      "Fix server-side authorization before changing UI visibility.",
+    ],
+    references: [
+      "https://owasp.org/Top10/A01_2021-Broken_Access_Control/",
+      "https://owasp.org/API-Security/editions/2023/en/0xa1-broken-object-level-authorization/",
+    ],
+    evidence: [
+      {
+        type: "ROLE_COMPARISON",
+        title: "Role response summary",
+        content: observations.map(renderRoleObservation).join("\n"),
+      },
+    ],
+  };
+}
+
+function isSuccessfulRoleObservation(item: RoleObservation) {
+  return Boolean(item.status && item.status < 400 && !item.loginOrDenied);
+}
+
+function adminLikeRoute(url: URL) {
+  return /\/(?:admin|settings|users?|roles?|permissions?|billing|invoices?|exports?|download|audit|reports?)(?:\/|$|\?)/i.test(
+    url.pathname,
+  );
+}
+
+function objectLikeRoute(url: URL) {
+  const value = `${url.pathname}?${url.searchParams.toString()}`;
+  return /(?:\/|\b)(?:user|account|tenant|client|customer|invoice|order|payment|submission|record|profile|file|document|report|export)s?(?:\/|=|_|-)?[A-Za-z0-9-]{2,}/i.test(
+    value,
+  );
+}
+
+function renderRoleObservation(item: RoleObservation) {
+  return [
+    `${item.profile.name} (${item.profile.role})`,
+    `status=${item.status ?? "error"}`,
+    `login_or_denied=${item.loginOrDenied}`,
+    `title=${item.title ?? "not captured"}`,
+    `redirected_to=${item.redirectedTo ?? "none"}`,
+    `content_type=${item.contentType ?? "unknown"}`,
+    `body_length=${item.length ?? "unknown"}`,
+    `body_sha256=${item.bodyHash ?? "not captured"}`,
+    item.error ? `error=${item.error}` : undefined,
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 function browserRenderingCoverageFinding(affectedUrl: string): FindingInput {

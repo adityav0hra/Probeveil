@@ -56,6 +56,7 @@ export async function POST(request: Request) {
   const normalizedHash = urlFingerprint(normalizedUrl);
   const authHeaders = scanAuthHeaders(parsed.data);
   const auth = scanAuthOptions(parsed.data);
+  const comparisonProfiles = scanComparisonProfiles(parsed.data);
   const features = {
     apiDiscovery: parsed.data.apiDiscovery,
     browserRendering: parsed.data.browserRendering,
@@ -112,6 +113,10 @@ export async function POST(request: Request) {
             },
             authHeaderConfigured: Boolean(authHeaders.authorization),
             cookieHeaderConfigured: Boolean(authHeaders.cookie),
+            comparisonProfiles: comparisonProfiles.map((profile) => ({
+              name: profile.name,
+              role: profile.role,
+            })),
             features,
           },
           reason: "Submitted scan target",
@@ -133,6 +138,7 @@ export async function POST(request: Request) {
           mode: parsed.data.mode,
           auth,
           authHeaders,
+          comparisonProfiles,
           features,
           scanId: scan.id,
           token,
@@ -171,6 +177,10 @@ export async function POST(request: Request) {
           authContextName: auth.contextName,
           authRouteSeedCount: auth.routeSeeds?.length ?? 0,
           authVerificationPath: auth.verificationPath,
+          comparisonProfileCount: comparisonProfiles.length,
+          comparisonProfileRoles: comparisonProfiles.map(
+            (profile) => profile.role,
+          ),
           features,
           mode: parsed.data.mode,
           normalizedUrl,
@@ -186,6 +196,7 @@ export async function POST(request: Request) {
     schedulePassiveWorkerKick(request, scan.id, token, {
       auth,
       authHeaders,
+      comparisonProfiles,
       features,
     });
 
@@ -225,6 +236,30 @@ function scanAuthOptions(data: {
   };
 }
 
+function scanComparisonProfiles(data: Record<string, string | boolean | undefined>) {
+  const profileSpecs = [
+    ["normalUser", "Normal user", "NORMAL_USER"],
+    ["adminUser", "Admin", "ADMIN"],
+    ["userA", "User A", "USER_A"],
+    ["userB", "User B", "USER_B"],
+  ] as const;
+  return profileSpecs.flatMap(([prefix, name, role]) => {
+    const authHeader = data[`${prefix}AuthHeader`];
+    const cookieHeader = data[`${prefix}CookieHeader`];
+    const authHeaders = {
+      ...(typeof authHeader === "string" && authHeader
+        ? { authorization: authHeader }
+        : {}),
+      ...(typeof cookieHeader === "string" && cookieHeader
+        ? { cookie: cookieHeader }
+        : {}),
+    };
+    return Object.keys(authHeaders).length
+      ? [{ authHeaders, name, role }]
+      : [];
+  });
+}
+
 function routeSeedsFromText(value: string) {
   return [
     ...new Set(
@@ -252,7 +287,10 @@ function schedulePassiveWorkerKick(
   request: Request,
   scanId: string,
   token: string,
-  options: Pick<import("@/worker/types").ScanJob, "auth" | "authHeaders" | "features">,
+  options: Pick<
+    import("@/worker/types").ScanJob,
+    "auth" | "authHeaders" | "comparisonProfiles" | "features"
+  >,
 ) {
   const url = new URL(`/api/internal/workers/passive/${scanId}`, request.url);
   after(async () => {

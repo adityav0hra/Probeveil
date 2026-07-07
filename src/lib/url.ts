@@ -12,6 +12,14 @@ export const createScanSchema = z.object({
   authHeader: z.string().trim().max(2000).optional().default(""),
   authRouteSeeds: z.string().trim().max(6000).optional().default(""),
   authVerificationPath: z.string().trim().max(2048).optional().default(""),
+  normalUserAuthHeader: z.string().trim().max(2000).optional().default(""),
+  normalUserCookieHeader: z.string().trim().max(4000).optional().default(""),
+  adminUserAuthHeader: z.string().trim().max(2000).optional().default(""),
+  adminUserCookieHeader: z.string().trim().max(4000).optional().default(""),
+  userAAuthHeader: z.string().trim().max(2000).optional().default(""),
+  userACookieHeader: z.string().trim().max(4000).optional().default(""),
+  userBAuthHeader: z.string().trim().max(2000).optional().default(""),
+  userBCookieHeader: z.string().trim().max(4000).optional().default(""),
   browserRendering: z
     .union([z.literal("on"), z.boolean()])
     .optional()

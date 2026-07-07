@@ -162,6 +162,46 @@ export function NewScanForm({
           </label>
         </div>
       </fieldset>
+      <fieldset className="rounded-xl border border-line bg-white/[.015] p-4">
+        <legend className="px-2 text-sm font-medium text-slate-200">
+          Role comparison
+        </legend>
+        <p className="mb-4 text-xs leading-5 text-slate-500">
+          Add approved sessions for role and account comparison. Values are used
+          for same-origin requests only.
+        </p>
+        <div className="grid gap-4">
+          {[
+            ["normalUser", "Normal user"],
+            ["adminUser", "Admin"],
+            ["userA", "User A"],
+            ["userB", "User B"],
+          ].map(([prefix, label]) => (
+            <div
+              className="rounded-lg border border-line bg-black/20 p-3"
+              key={prefix}
+            >
+              <p className="text-sm font-medium text-slate-200">{label}</p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <input
+                  autoComplete="off"
+                  className="input"
+                  name={`${prefix}AuthHeader`}
+                  placeholder={`${label} Authorization header`}
+                  type="password"
+                />
+                <input
+                  autoComplete="off"
+                  className="input"
+                  name={`${prefix}CookieHeader`}
+                  placeholder={`${label} Cookie header`}
+                  type="password"
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </fieldset>
       {error && (
         <p
           className="rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300"

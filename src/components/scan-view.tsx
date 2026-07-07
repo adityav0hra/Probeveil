@@ -514,6 +514,11 @@ function buildInsight(scan: Scan) {
       finding.category === "Evasion signal" ||
       finding.scannerRuleId?.startsWith("evasion/"),
   );
+  const roleComparisonFindings = scan.findings.filter(
+    (finding) =>
+      finding.category === "Role comparison" ||
+      finding.scannerRuleId?.startsWith("role-comparison/"),
+  ).length;
   const parameters = scan.endpoints.flatMap(
     (endpoint) => endpoint.parameters ?? [],
   );
@@ -581,6 +586,7 @@ function buildInsight(scan: Scan) {
       ["Authenticated routes", authenticatedRoutes],
       ["Technologies inferred", scan.technologies.length],
       ["Manual-review tasks", manualReview],
+      ["Role findings", roleComparisonFindings],
       ["Evasion signals", evasionSignals.length],
       [
         "Adversarial stages",

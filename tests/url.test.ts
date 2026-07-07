@@ -15,10 +15,15 @@ describe("URL normalisation", () => {
       authRouteSeeds: "/dashboard\n/settings",
       authVerificationPath: "/dashboard",
       cookieHeader: "sid=abc",
+      normalUserCookieHeader: "sid=normal",
+      adminUserCookieHeader: "sid=admin",
+      userACookieHeader: "sid=user-a",
+      userBCookieHeader: "sid=user-b",
       mode: "FULL",
       url: "https://example.com",
     });
     expect(parsed.apiDiscovery).toBe(true);
+    expect(parsed.adminUserCookieHeader).toBe("sid=admin");
     expect(parsed.authVerificationPath).toBe("/dashboard");
     expect(parsed.authRouteSeeds).toContain("/settings");
   });

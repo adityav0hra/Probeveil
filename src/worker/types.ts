@@ -6,6 +6,11 @@ export type ScanJob = {
     verificationPath?: string;
   };
   authHeaders?: Record<string, string>;
+  comparisonProfiles?: Array<{
+    authHeaders?: Record<string, string>;
+    name: string;
+    role: "ANONYMOUS" | "NORMAL_USER" | "ADMIN" | "USER_A" | "USER_B" | "CUSTOM";
+  }>;
   features?: {
     apiDiscovery?: boolean;
     browserRendering?: boolean;

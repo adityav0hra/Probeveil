@@ -71,6 +71,7 @@ export async function POST(
   const job: ScanJob = {
     auth: options.auth,
     authHeaders: options.authHeaders,
+    comparisonProfiles: options.comparisonProfiles,
     features: options.features,
     mode: scan.mode,
     scanId: scan.id,
@@ -141,11 +142,15 @@ export async function POST(
 
 function scanOptions(
   value: unknown,
-): Pick<ScanJob, "auth" | "authHeaders" | "features"> {
+): Pick<
+  ScanJob,
+  "auth" | "authHeaders" | "comparisonProfiles" | "features"
+> {
   if (!value || typeof value !== "object") return {};
   const data = value as {
     auth?: Record<string, unknown>;
     authHeaders?: Record<string, unknown>;
+    comparisonProfiles?: unknown;
     features?: Record<string, unknown>;
   };
   return {
@@ -173,6 +178,7 @@ function scanOptions(
         (entry): entry is [string, string] => typeof entry[1] === "string",
       ),
     ),
+    comparisonProfiles: parseComparisonProfiles(data.comparisonProfiles),
     features: {
       apiDiscovery: Boolean(data.features?.apiDiscovery),
       browserRendering: Boolean(data.features?.browserRendering),
@@ -182,8 +188,14 @@ function scanOptions(
 }
 
 function mergeScanOptions(
-  fallback: Pick<ScanJob, "auth" | "authHeaders" | "features">,
-  preferred: Pick<ScanJob, "auth" | "authHeaders" | "features">,
+  fallback: Pick<
+    ScanJob,
+    "auth" | "authHeaders" | "comparisonProfiles" | "features"
+  >,
+  preferred: Pick<
+    ScanJob,
+    "auth" | "authHeaders" | "comparisonProfiles" | "features"
+  >,
 ) {
   return {
     auth: {
@@ -197,9 +209,46 @@ function mergeScanOptions(
       ...fallback.authHeaders,
       ...preferred.authHeaders,
     },
+    comparisonProfiles: preferred.comparisonProfiles?.length
+      ? preferred.comparisonProfiles
+      : fallback.comparisonProfiles,
     features: {
       ...fallback.features,
       ...preferred.features,
     },
   };
+}
+
+function parseComparisonProfiles(value: unknown): ScanJob["comparisonProfiles"] {
+  if (!Array.isArray(value)) return undefined;
+  const roles = new Set([
+    "ANONYMOUS",
+    "NORMAL_USER",
+    "ADMIN",
+    "USER_A",
+    "USER_B",
+    "CUSTOM",
+  ]);
+  return value
+    .map((item) => {
+      if (!item || typeof item !== "object") return undefined;
+      const row = item as Record<string, unknown>;
+      const authHeaders =
+        row.authHeaders && typeof row.authHeaders === "object"
+          ? Object.fromEntries(
+              Object.entries(row.authHeaders).filter(
+                (entry): entry is [string, string] =>
+                  typeof entry[1] === "string",
+              ),
+            )
+          : {};
+      const name = typeof row.name === "string" ? row.name : "Custom profile";
+      const role = typeof row.role === "string" && roles.has(row.role)
+        ? row.role
+        : "CUSTOM";
+      return Object.keys(authHeaders).length
+        ? { authHeaders, name, role: role as NonNullable<ScanJob["comparisonProfiles"]>[number]["role"] }
+        : undefined;
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
 }
