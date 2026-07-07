@@ -8,6 +8,7 @@ import {
 } from "@prisma/client";
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { notificationDefaultEmail } from "@/lib/email/config";
 import { diffFindings, type FindingDiffInput } from "@/lib/scheduling";
 import { sendNotificationEmailDetailed } from "./email";
 
@@ -136,9 +137,10 @@ async function createAndSendNotification(input: {
   metadata: Prisma.InputJsonValue;
   scan: Scan & { schedule: ScanSchedule | null };
   subject: string;
-  toEmail: string;
+  toEmail?: string | null;
   type: NotificationType;
 }) {
+  const toEmail = input.toEmail || notificationDefaultEmail() || null;
   let status: NotificationDeliveryStatus =
     NotificationDeliveryStatus.NOT_CONFIGURED;
   let error: string | undefined;
@@ -146,7 +148,7 @@ async function createAndSendNotification(input: {
     const result = await sendNotificationEmailDetailed({
       subject: input.subject,
       text: input.body,
-      to: input.toEmail,
+      to: toEmail,
     });
     status =
       result.status === "SENT"
@@ -170,7 +172,7 @@ async function createAndSendNotification(input: {
       sentAt: status === NotificationDeliveryStatus.SENT ? new Date() : null,
       status,
       subject: input.subject,
-      toEmail: input.toEmail || null,
+      toEmail,
       type: input.type,
     },
   });
@@ -197,9 +199,13 @@ async function readAutomationSettings() {
     where: { key: "scan_automation" },
   });
   if (!row?.value || typeof row.value !== "object")
-    return defaultAutomationSettings;
+    return {
+      ...defaultAutomationSettings,
+      notificationEmail: notificationDefaultEmail() ?? "",
+    };
   return {
     ...defaultAutomationSettings,
+    notificationEmail: notificationDefaultEmail() ?? "",
     ...(row.value as Partial<AutomationSettings>),
   };
 }
@@ -223,8 +229,8 @@ function notificationPreferences(
     };
   }
   return {
-    email: settings.notificationEmail,
-    enabled: Boolean(settings.notificationEmail),
+    email: settings.notificationEmail || notificationDefaultEmail(),
+    enabled: Boolean(settings.notificationEmail || notificationDefaultEmail()),
     failedScanAlerts: true,
     highSeverityAlerts: settings.highSeverityAlerts,
     newFindingDiffs: settings.differentialReports,

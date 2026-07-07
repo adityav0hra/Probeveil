@@ -4,6 +4,14 @@ import {
   preferredScanDepthLabels,
 } from "@/lib/contact/options";
 import type { ContactEnquiry } from "@prisma/client";
+import {
+  contactAdminEmail,
+  emailFrom,
+  emailReplyTo,
+  emailWebhookToken,
+  emailWebhookUrl,
+  envValue,
+} from "@/lib/email/config";
 
 type EmailResult = "SENT" | "FAILED" | "NOT_CONFIGURED";
 
@@ -66,9 +74,9 @@ async function sendViaResend({
   subject: string;
   text: string;
 }) {
-  const apiKey = process.env.RESEND_API_KEY;
-  const from =
-    process.env.CONTACT_EMAIL_FROM ?? "Probeveil <onboarding@resend.dev>";
+  const apiKey = envValue("RESEND_API_KEY");
+  const from = emailFrom("contact");
+  const replyTo = emailReplyTo("contact");
   if (!apiKey || !from) return "NOT_CONFIGURED" satisfies EmailResult;
 
   const response = await fetch("https://api.resend.com/emails", {
@@ -77,7 +85,13 @@ async function sendViaResend({
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ from, to, subject, text }),
+    body: JSON.stringify({
+      from,
+      reply_to: replyTo ?? undefined,
+      to,
+      subject,
+      text,
+    }),
   });
 
   if (!response.ok) {
@@ -100,17 +114,23 @@ async function sendViaWebhook({
   subject: string;
   text: string;
 }) {
-  const url = process.env.CONTACT_EMAIL_WEBHOOK_URL;
+  const url = emailWebhookUrl("contact");
   if (!url) return "NOT_CONFIGURED" satisfies EmailResult;
   const response = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      ...(process.env.CONTACT_EMAIL_WEBHOOK_TOKEN
-        ? { Authorization: `Bearer ${process.env.CONTACT_EMAIL_WEBHOOK_TOKEN}` }
+      ...(emailWebhookToken("contact")
+        ? { Authorization: `Bearer ${emailWebhookToken("contact")}` }
         : {}),
     },
-    body: JSON.stringify({ to, subject, text }),
+    body: JSON.stringify({
+      from: emailFrom("contact"),
+      replyTo: emailReplyTo("contact"),
+      subject,
+      text,
+      to,
+    }),
   });
   return response.ok ? "SENT" : "FAILED";
 }
@@ -122,7 +142,7 @@ async function sendEmail(input: { to: string; subject: string; text: string }) {
 }
 
 export async function sendContactEmails(enquiry: ContactEnquiry) {
-  const adminTo = process.env.CONTACT_ADMIN_EMAIL;
+  const adminTo = contactAdminEmail();
   if (!adminTo) return "NOT_CONFIGURED" satisfies EmailResult;
 
   const adminResult = await sendEmail({

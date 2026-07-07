@@ -1,12 +1,26 @@
 import "server-only";
 
+import {
+  emailFrom,
+  emailReadiness,
+  emailReplyTo,
+  emailWebhookToken,
+  emailWebhookUrl,
+  envValue,
+  notificationDefaultEmail,
+} from "@/lib/email/config";
+
 export type NotificationEmailResult = "SENT" | "FAILED" | "NOT_CONFIGURED";
 export type NotificationEmailProvider = "WEBHOOK" | "RESEND" | "NONE";
 
 export type NotificationEmailStatus = {
   configured: boolean;
+  defaultRecipient: string | null;
   from: string | null;
+  missing: string[];
   provider: NotificationEmailProvider;
+  ready: boolean;
+  replyTo: string | null;
   webhookConfigured: boolean;
 };
 
@@ -16,26 +30,17 @@ export type NotificationEmailSendResult = {
   status: NotificationEmailResult;
 };
 
-function fromAddress() {
-  return (
-    process.env.NOTIFICATION_EMAIL_FROM ??
-    process.env.CONTACT_EMAIL_FROM ??
-    "Probeveil <onboarding@resend.dev>"
-  );
-}
-
 export function getNotificationEmailStatus(): NotificationEmailStatus {
-  const webhookConfigured = Boolean(process.env.NOTIFICATION_EMAIL_WEBHOOK_URL);
-  const resendConfigured = Boolean(process.env.RESEND_API_KEY);
+  const readiness = emailReadiness("notification");
   return {
-    configured: webhookConfigured || resendConfigured,
-    from: webhookConfigured || resendConfigured ? fromAddress() : null,
-    provider: webhookConfigured
-      ? "WEBHOOK"
-      : resendConfigured
-        ? "RESEND"
-        : "NONE",
-    webhookConfigured,
+    configured: readiness.configured,
+    defaultRecipient: readiness.defaultRecipient,
+    from: readiness.from,
+    missing: readiness.missing,
+    provider: readiness.provider,
+    ready: readiness.ready,
+    replyTo: readiness.replyTo,
+    webhookConfigured: readiness.webhookConfigured,
   };
 }
 
@@ -44,7 +49,7 @@ async function sendViaWebhook(input: {
   text: string;
   to: string;
 }): Promise<NotificationEmailSendResult> {
-  const url = process.env.NOTIFICATION_EMAIL_WEBHOOK_URL;
+  const url = emailWebhookUrl("notification");
   if (!url)
     return {
       provider: "WEBHOOK",
@@ -52,12 +57,16 @@ async function sendViaWebhook(input: {
     } satisfies NotificationEmailSendResult;
 
   const response = await fetch(url, {
-    body: JSON.stringify(input),
+    body: JSON.stringify({
+      ...input,
+      from: emailFrom("notification"),
+      replyTo: emailReplyTo("notification"),
+    }),
     headers: {
       "Content-Type": "application/json",
-      ...(process.env.NOTIFICATION_EMAIL_WEBHOOK_TOKEN
+      ...(emailWebhookToken("notification")
         ? {
-            Authorization: `Bearer ${process.env.NOTIFICATION_EMAIL_WEBHOOK_TOKEN}`,
+            Authorization: `Bearer ${emailWebhookToken("notification")}`,
           }
         : {}),
     },
@@ -75,8 +84,9 @@ async function sendViaResend(input: {
   text: string;
   to: string;
 }): Promise<NotificationEmailSendResult> {
-  const apiKey = process.env.RESEND_API_KEY;
-  const from = fromAddress();
+  const apiKey = envValue("RESEND_API_KEY");
+  const from = emailFrom("notification");
+  const replyTo = emailReplyTo("notification");
   if (!apiKey || !from)
     return {
       provider: "RESEND",
@@ -84,7 +94,7 @@ async function sendViaResend(input: {
     } satisfies NotificationEmailSendResult;
 
   const response = await fetch("https://api.resend.com/emails", {
-    body: JSON.stringify({ from, ...input }),
+    body: JSON.stringify({ from, reply_to: replyTo ?? undefined, ...input }),
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
@@ -117,7 +127,8 @@ export async function sendNotificationEmailDetailed(input: {
   text: string;
   to?: string | null;
 }): Promise<NotificationEmailSendResult> {
-  if (!input.to)
+  const to = input.to || notificationDefaultEmail();
+  if (!to)
     return {
       provider: "NONE",
       status: "NOT_CONFIGURED",
@@ -125,13 +136,13 @@ export async function sendNotificationEmailDetailed(input: {
   const webhookResult = await sendViaWebhook({
     subject: input.subject,
     text: input.text,
-    to: input.to,
+    to,
   });
   if (webhookResult.status !== "NOT_CONFIGURED") return webhookResult;
   return sendViaResend({
     subject: input.subject,
     text: input.text,
-    to: input.to,
+    to,
   });
 }
 

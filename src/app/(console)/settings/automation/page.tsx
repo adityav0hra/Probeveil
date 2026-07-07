@@ -275,8 +275,12 @@ export default async function AutomationSettingsPage() {
             <div className="flex items-center gap-3">
               <MailCheck className="text-signal" size={20} />
               <h2 className="text-lg font-semibold">Email provider</h2>
-              <span className={providerClass(emailStatus.configured)}>
-                {emailStatus.configured ? "Configured" : "Not configured"}
+              <span className={providerClass(emailStatus.ready)}>
+                {emailStatus.ready
+                  ? "Ready"
+                  : emailStatus.configured
+                    ? "Needs setup"
+                    : "Not configured"}
               </span>
             </div>
             <div className="mt-4 grid gap-3 text-sm text-slate-400 sm:grid-cols-3">
@@ -290,6 +294,11 @@ export default async function AutomationSettingsPage() {
                 value={settings.notificationEmail || "Missing"}
               />
             </div>
+            {emailStatus.missing.length > 0 && (
+              <div className="mt-4 rounded-lg border border-amber-400/20 bg-amber-400/10 p-3 text-xs leading-5 text-amber-100">
+                Missing: {emailStatus.missing.join(", ")}
+              </div>
+            )}
           </div>
           <form
             action={sendTestEmail}
@@ -615,8 +624,15 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 async function readSettings() {
   const row = await db.systemSetting.findUnique({ where: { key: settingKey } });
-  if (!row?.value || typeof row.value !== "object") return defaults;
-  return { ...defaults, ...(row.value as Partial<AutomationSettings>) };
+  const fallbackEmail = getNotificationEmailStatus().defaultRecipient ?? "";
+  if (!row?.value || typeof row.value !== "object")
+    return { ...defaults, notificationEmail: fallbackEmail };
+  const value = row.value as Partial<AutomationSettings>;
+  return {
+    ...defaults,
+    ...value,
+    notificationEmail: value.notificationEmail || fallbackEmail,
+  };
 }
 
 async function readSelectedProfile(value: FormDataEntryValue | null) {

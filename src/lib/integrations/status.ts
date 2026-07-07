@@ -1,4 +1,5 @@
 import { IntegrationProvider } from "@prisma/client";
+import { emailReadiness } from "@/lib/email/config";
 
 export type ProviderStatus = {
   configured: boolean;
@@ -9,9 +10,7 @@ export type ProviderStatus = {
 };
 
 export function getIntegrationStatuses(): ProviderStatus[] {
-  const emailConfigured = Boolean(
-    process.env.RESEND_API_KEY || process.env.NOTIFICATION_EMAIL_WEBHOOK_URL,
-  );
+  const emailStatus = emailReadiness("notification");
   return [
     {
       configured: Boolean(process.env.SLACK_WEBHOOK_URL),
@@ -60,14 +59,12 @@ export function getIntegrationStatuses(): ProviderStatus[] {
       type: "issue",
     },
     {
-      configured: emailConfigured,
+      configured: emailStatus.ready,
       label: "Email summaries",
       provider: IntegrationProvider.EMAIL,
-      target: emailConfigured
-        ? (process.env.NOTIFICATION_EMAIL_FROM ??
-          process.env.CONTACT_EMAIL_FROM ??
-          "Probeveil <onboarding@resend.dev>")
-        : "Missing provider",
+      target: emailStatus.ready
+        ? `${emailStatus.provider}: ${emailStatus.defaultRecipient}`
+        : `Missing ${emailStatus.missing.join(", ")}`,
       type: "email",
     },
   ];
