@@ -8,6 +8,11 @@ import {
 } from "@/lib/auth-vault";
 import { db } from "@/lib/db";
 import { getScanQueue } from "@/lib/queue";
+import {
+  approvedDomainForUrl,
+  assertBusinessWindow,
+  safetyPolicyFromApproval,
+} from "@/lib/scan-safety";
 import { scanPolicyFromProfile } from "@/lib/scan-profiles";
 import { PASSIVE_STAGES } from "@/lib/stages";
 import { createScanSchema, normalizeUrlInput, urlFingerprint } from "@/lib/url";
@@ -60,6 +65,15 @@ export async function POST(request: Request) {
   }
 
   const normalizedHash = urlFingerprint(normalizedUrl);
+  const approvedDomain = await approvedDomainForUrl(normalizedUrl);
+  if (!approvedDomain) {
+    return scanErrorResponse(
+      request,
+      isJson,
+      "This domain needs an approved ownership record before scanning. Add proof in Settings > Safety.",
+      parsed.data,
+    );
+  }
   const profile = parsed.data.profileId
     ? await db.scanProfile.findFirst({
         where: { enabled: true, id: parsed.data.profileId },
@@ -67,6 +81,20 @@ export async function POST(request: Request) {
     : null;
   const policy = profile ? scanPolicyFromProfile(profile) : null;
   const mode = policy?.mode ?? parsed.data.mode;
+  const safety = safetyPolicyFromApproval(
+    approvedDomain,
+    policy?.limits.maxRoutes ?? defaultMaxRequests(mode),
+  );
+  try {
+    assertBusinessWindow(safety);
+  } catch (error) {
+    return scanErrorResponse(
+      request,
+      isJson,
+      error instanceof Error ? error.message : "Outside approved scan window.",
+      parsed.data,
+    );
+  }
   let vaultSelections: Awaited<ReturnType<typeof loadVaultSelections>>;
   try {
     vaultSelections = await loadVaultSelections(parsed.data);
@@ -158,6 +186,14 @@ export async function POST(request: Request) {
               role: profile.role,
             })),
             features,
+            safety: {
+              approvalId: safety.approvalId,
+              businessHours: safety.businessHours,
+              excludedDangerousPayloadClasses:
+                safety.excludedDangerousPayloadClasses,
+              maxRequestsPerScan: safety.maxRequestsPerScan,
+              requestsPerMinute: safety.requestsPerMinute,
+            },
             policy: policy
               ? {
                   alertThresholds: policy.alertThresholds,
@@ -197,6 +233,7 @@ export async function POST(request: Request) {
           authHeaders,
           comparisonProfiles,
           features,
+          safety,
           scanId: scan.id,
           token,
           url: normalizedUrl,
@@ -245,6 +282,14 @@ export async function POST(request: Request) {
           features,
           mode,
           normalizedUrl,
+          safety: {
+            approvalId: safety.approvalId,
+            businessHoursEnabled: safety.businessHours?.enabled ?? false,
+            excludedDangerousPayloadClasses:
+              safety.excludedDangerousPayloadClasses,
+            maxRequestsPerScan: safety.maxRequestsPerScan,
+            requestsPerMinute: safety.requestsPerMinute,
+          },
           profileId: profile?.id,
           profileName: profile?.name,
         },
@@ -261,6 +306,7 @@ export async function POST(request: Request) {
       authHeaders,
       comparisonProfiles,
       features,
+      safety,
     });
 
   if (!isJson) {
@@ -460,7 +506,7 @@ function schedulePassiveWorkerKick(
   token: string,
   options: Pick<
     import("@/worker/types").ScanJob,
-    "auth" | "authHeaders" | "comparisonProfiles" | "features"
+    "auth" | "authHeaders" | "comparisonProfiles" | "features" | "safety"
   >,
 ) {
   const url = new URL(`/api/internal/workers/passive/${scanId}`, request.url);
@@ -486,6 +532,12 @@ function schedulePassiveWorkerKick(
       );
     }
   });
+}
+
+function defaultMaxRequests(mode: "QUICK" | "FULL" | "MAXIMUM") {
+  if (mode === "QUICK") return 75;
+  if (mode === "FULL") return 250;
+  return 500;
 }
 
 function scanErrorResponse(

@@ -211,11 +211,42 @@ model User {
   scans                    Scan[]
   scanSchedules            ScanSchedule[]
   authCredentialProfiles   AuthCredentialProfile[]
+  domainApprovals          DomainApproval[]
   reviews                  FindingReview[]
   auditLogs                AuditLog[]
   assignedContactEnquiries ContactEnquiry[] @relation("AssignedContactEnquiries")
   createdAt                DateTime         @default(now())
   updatedAt                DateTime         @updatedAt
+}
+
+model DomainApproval {
+  id                         String    @id @default(cuid())
+  userId                     String
+  user                       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hostname                   String
+  normalizedHostname         String
+  status                     String    @default("PENDING")
+  proofToken                 String    @unique
+  proofMethod                String    @default("DNS_TXT")
+  proofValue                 String    @db.Text
+  approvedAt                 DateTime?
+  expiresAt                  DateTime?
+  revokedAt                  DateTime?
+  notes                      String?   @db.Text
+  maxRequestsPerScan         Int       @default(250)
+  requestsPerMinute          Int       @default(60)
+  businessHoursEnabled       Boolean   @default(false)
+  businessTimezone           String    @default("Australia/Sydney")
+  businessDays               Json      @default("[1,2,3,4,5]")
+  businessStart              String    @default("09:00")
+  businessEnd                String    @default("17:00")
+  excludedDangerousPayloads  Json
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
+
+  @@index([normalizedHostname, status])
+  @@index([status, expiresAt])
+  @@index([userId, status])
 }
 
 model AuthCredentialProfile {

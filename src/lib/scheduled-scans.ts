@@ -2,6 +2,11 @@ import "server-only";
 import { ScanStatus, type ScanMode, type ScanSchedule } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getScanQueue } from "@/lib/queue";
+import {
+  approvedDomainForUrl,
+  assertBusinessWindow,
+  safetyPolicyFromApproval,
+} from "@/lib/scan-safety";
 import { nextScheduledRun } from "@/lib/scheduling";
 import { PASSIVE_STAGES } from "@/lib/stages";
 import { signWorkerToken } from "@/lib/worker-token";
@@ -14,7 +19,7 @@ export type ScheduledScanLaunch = {
   token?: string;
   workerOptions?: Pick<
     ScanJob,
-    "auth" | "authHeaders" | "comparisonProfiles" | "features"
+    "auth" | "authHeaders" | "comparisonProfiles" | "features" | "safety"
   >;
 };
 
@@ -55,6 +60,36 @@ export async function launchScheduledScan(
   }
 
   const features = scanFeatures(schedule.features);
+  const approvedDomain = await approvedDomainForUrl(schedule.normalizedUrl);
+  if (!approvedDomain) {
+    await db.scanSchedule.update({
+      where: { id: schedule.id },
+      data: { lastRunAt: now, nextRunAt },
+    });
+    return {
+      nextRunAt,
+      skipped: "Domain is missing an approved ownership record.",
+    } satisfies ScheduledScanLaunch;
+  }
+  const safety = safetyPolicyFromApproval(
+    approvedDomain,
+    defaultMaxRequests(schedule.mode),
+  );
+  try {
+    assertBusinessWindow(safety);
+  } catch (error) {
+    await db.scanSchedule.update({
+      where: { id: schedule.id },
+      data: { lastRunAt: now, nextRunAt },
+    });
+    return {
+      nextRunAt,
+      skipped:
+        error instanceof Error
+          ? error.message
+          : "Outside approved scan window.",
+    } satisfies ScheduledScanLaunch;
+  }
   const scan = await db.scan.create({
     data: {
       mode: schedule.mode,
@@ -78,6 +113,7 @@ export async function launchScheduledScan(
           metadata: {
             features,
             profileId: schedule.profileId,
+            safety,
             scheduleId: schedule.id,
             scheduled: true,
           },
@@ -89,7 +125,7 @@ export async function launchScheduledScan(
     },
   });
   const token = signWorkerToken(scan.id);
-  const workerOptions = { features };
+  const workerOptions = { features, safety };
   let queueJobId = `serverless:${scan.id}`;
   let workerType = "SERVERLESS_PASSIVE_HTTP";
 
@@ -100,6 +136,7 @@ export async function launchScheduledScan(
         {
           features,
           mode: schedule.mode as ScanMode,
+          safety,
           scanId: scan.id,
           token,
           url: schedule.normalizedUrl,
@@ -141,6 +178,12 @@ export async function launchScheduledScan(
           nextRunAt: nextRunAt.toISOString(),
           normalizedUrl: schedule.normalizedUrl,
           profileId: schedule.profileId,
+          safety: {
+            approvalId: safety.approvalId,
+            businessHoursEnabled: safety.businessHours?.enabled ?? false,
+            maxRequestsPerScan: safety.maxRequestsPerScan,
+            requestsPerMinute: safety.requestsPerMinute,
+          },
           scheduleId: schedule.id,
         },
         resourceId: scan.id,
@@ -156,6 +199,12 @@ export async function launchScheduledScan(
     token,
     workerOptions,
   } satisfies ScheduledScanLaunch;
+}
+
+function defaultMaxRequests(mode: ScanMode) {
+  if (mode === "QUICK") return 75;
+  if (mode === "FULL") return 250;
+  return 500;
 }
 
 export async function kickScheduledScanWorker(

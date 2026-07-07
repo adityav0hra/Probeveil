@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { promises as dns } from "node:dns";
 import tls from "node:tls";
 import { assertAddressesAllowed } from "@/lib/scope";
+import { assertBusinessWindow } from "@/lib/scan-safety-shared";
 import { isSameOriginOrSubdomain } from "@/lib/url";
 import { runBrowserRenderedScan } from "./browser-rendered";
 import type { BrowserRenderedScreenshot } from "./browser-rendered";
@@ -253,8 +255,19 @@ const endpointBatchSize = 200;
 const httpExchangeBodyExcerptLimit = 12_000;
 const parameterBatchSize = 300;
 const screenshotBase64Limit = 1_500_000;
+const safetyContext = new AsyncLocalStorage<SafetyGuard>();
 
 export async function runPassive(
+  job: ScanJob,
+  emit: (event: unknown) => Promise<void>,
+  cancelled: () => Promise<boolean>,
+) {
+  return safetyContext.run(new SafetyGuard(job.safety), () =>
+    runPassiveWithSafety(job, emit, cancelled),
+  );
+}
+
+async function runPassiveWithSafety(
   job: ScanJob,
   emit: (event: unknown) => Promise<void>,
   cancelled: () => Promise<boolean>,
@@ -1002,7 +1015,10 @@ export async function runPassive(
     }
   });
   await stage(emit, "correlate", async () => {
-    for (const endpointBatch of chunks(dedupeEndpoints(endpoints), endpointBatchSize))
+    for (const endpointBatch of chunks(
+      dedupeEndpoints(endpoints),
+      endpointBatchSize,
+    ))
       await emit({ type: "endpoints", endpoints: endpointBatch });
     for (const parameterBatch of chunks(
       [...parameters.values()].slice(0, 1000),
@@ -3887,6 +3903,49 @@ type SafeFetchInit = RequestInit & {
   authHeaders?: Record<string, string>;
 };
 
+class SafetyGuard {
+  private readonly maxRequests: number;
+  private readonly minDelayMs: number;
+  private lastRequestAt = 0;
+  private requests = 0;
+
+  constructor(private readonly policy: ScanJob["safety"]) {
+    this.maxRequests = Math.max(
+      1,
+      Math.round(policy?.maxRequestsPerScan ?? 500),
+    );
+    const rpm = Math.max(1, Math.round(policy?.requestsPerMinute ?? 120));
+    this.minDelayMs = Math.ceil(60_000 / rpm);
+  }
+
+  async beforeRequest(url: URL, method: string) {
+    assertBusinessWindow(this.policy);
+    this.requests += 1;
+    if (this.requests > this.maxRequests) {
+      throw new Error(
+        `Scan safety limit reached: ${this.maxRequests} requests per scan.`,
+      );
+    }
+    if (method !== "GET" && method !== "HEAD") {
+      throw new Error(
+        `Scan safety blocked non-read request method: ${method}.`,
+      );
+    }
+    const elapsed = Date.now() - this.lastRequestAt;
+    if (this.lastRequestAt && elapsed < this.minDelayMs) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, this.minDelayMs - elapsed),
+      );
+    }
+    this.lastRequestAt = Date.now();
+    if (blockedPayload(url, this.policy?.excludedDangerousPayloadClasses)) {
+      throw new Error(
+        "Scan safety blocked an excluded dangerous payload class.",
+      );
+    }
+  }
+}
+
 async function safeFetch(
   start: URL,
   root: URL,
@@ -3907,6 +3966,7 @@ async function safeFetch(
       ...headersToRecord(fetchInit.headers),
     };
     const requestMethod = fetchInit.method?.toString().toUpperCase() ?? "GET";
+    await safetyContext.getStore()?.beforeRequest(url, requestMethod);
     const response = await fetch(url, {
       ...fetchInit,
       redirect: "manual",
@@ -3946,6 +4006,22 @@ async function safeFetch(
     };
   }
   throw new Error("Target exceeded the redirect limit.");
+}
+
+function blockedPayload(url: URL, excluded: string[] = []) {
+  if (!excluded.length) return false;
+  const value = decodeURIComponent(url.search).toLowerCase();
+  const classes = new Set(excluded);
+  return (
+    (classes.has("sql-time-delay") &&
+      /\bsleep\s*\(|benchmark\s*\(|pg_sleep\b/.test(value)) ||
+    (classes.has("command-execution") &&
+      /(?:;|\||&&)\s*(?:cat|curl|wget|bash|sh|powershell)\b/.test(value)) ||
+    (classes.has("stored-xss") &&
+      /<script|onerror\s*=|onload\s*=|javascript:/i.test(value)) ||
+    (classes.has("ssrf-internal-network") &&
+      /(?:127\.0\.0\.1|169\.254\.169\.254|localhost|0\.0\.0\.0)/.test(value))
+  );
 }
 
 function headersToRecord(headers: HeadersInit | undefined) {

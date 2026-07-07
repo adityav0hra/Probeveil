@@ -9,12 +9,31 @@ export type ScanJob = {
   comparisonProfiles?: Array<{
     authHeaders?: Record<string, string>;
     name: string;
-    role: "ANONYMOUS" | "NORMAL_USER" | "ADMIN" | "USER_A" | "USER_B" | "CUSTOM";
+    role:
+      | "ANONYMOUS"
+      | "NORMAL_USER"
+      | "ADMIN"
+      | "USER_A"
+      | "USER_B"
+      | "CUSTOM";
   }>;
   features?: {
     apiDiscovery?: boolean;
     browserRendering?: boolean;
     screenshots?: boolean;
+  };
+  safety?: {
+    approvalId?: string;
+    businessHours?: {
+      days: number[];
+      enabled: boolean;
+      end: string;
+      start: string;
+      timezone: string;
+    };
+    excludedDangerousPayloadClasses?: string[];
+    maxRequestsPerScan?: number;
+    requestsPerMinute?: number;
   };
   scanId: string;
   url: string;

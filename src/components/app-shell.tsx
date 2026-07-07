@@ -15,6 +15,7 @@ import {
   Radar,
   ScrollText,
   Settings2,
+  ShieldAlert,
   ShieldPlus,
   SlidersHorizontal,
 } from "lucide-react";
@@ -32,6 +33,7 @@ const nav = [
   ["/contact-enquiries", "Enquiries", Inbox],
   ["/settings/profiles", "Profiles", SlidersHorizontal],
   ["/settings/vault", "Secrets vault", KeyRound],
+  ["/settings/safety", "Safety", ShieldAlert],
   ["/settings/scanners", "Scanners", Settings2],
   ["/settings/integrations", "Integrations", PlugZap],
   ["/settings/automation", "Automation", BellRing],

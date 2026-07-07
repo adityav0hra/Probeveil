@@ -73,6 +73,7 @@ export async function POST(
     authHeaders: options.authHeaders,
     comparisonProfiles: options.comparisonProfiles,
     features: options.features,
+    safety: options.safety,
     mode: scan.mode,
     scanId: scan.id,
     token,
@@ -148,7 +149,7 @@ function scanOptions(
   value: unknown,
 ): Pick<
   ScanJob,
-  "auth" | "authHeaders" | "comparisonProfiles" | "features"
+  "auth" | "authHeaders" | "comparisonProfiles" | "features" | "safety"
 > {
   if (!value || typeof value !== "object") return {};
   const data = value as {
@@ -156,6 +157,7 @@ function scanOptions(
     authHeaders?: Record<string, unknown>;
     comparisonProfiles?: unknown;
     features?: Record<string, unknown>;
+    safety?: Record<string, unknown>;
   };
   return {
     auth: {
@@ -188,17 +190,18 @@ function scanOptions(
       browserRendering: Boolean(data.features?.browserRendering),
       screenshots: Boolean(data.features?.screenshots),
     },
+    safety: parseSafety(data.safety),
   };
 }
 
 function mergeScanOptions(
   fallback: Pick<
     ScanJob,
-    "auth" | "authHeaders" | "comparisonProfiles" | "features"
+    "auth" | "authHeaders" | "comparisonProfiles" | "features" | "safety"
   >,
   preferred: Pick<
     ScanJob,
-    "auth" | "authHeaders" | "comparisonProfiles" | "features"
+    "auth" | "authHeaders" | "comparisonProfiles" | "features" | "safety"
   >,
 ) {
   return {
@@ -220,10 +223,64 @@ function mergeScanOptions(
       ...fallback.features,
       ...preferred.features,
     },
+    safety: {
+      ...fallback.safety,
+      ...preferred.safety,
+    },
   };
 }
 
-function parseComparisonProfiles(value: unknown): ScanJob["comparisonProfiles"] {
+function parseSafety(value: unknown): ScanJob["safety"] {
+  if (!value || typeof value !== "object") return undefined;
+  const data = value as Record<string, unknown>;
+  const businessHours =
+    data.businessHours && typeof data.businessHours === "object"
+      ? (data.businessHours as Record<string, unknown>)
+      : undefined;
+  return {
+    approvalId:
+      typeof data.approvalId === "string" ? data.approvalId : undefined,
+    businessHours: businessHours
+      ? {
+          days: Array.isArray(businessHours.days)
+            ? businessHours.days.filter(
+                (item): item is number => typeof item === "number",
+              )
+            : [],
+          enabled: businessHours.enabled === true,
+          end:
+            typeof businessHours.end === "string" ? businessHours.end : "17:00",
+          start:
+            typeof businessHours.start === "string"
+              ? businessHours.start
+              : "09:00",
+          timezone:
+            typeof businessHours.timezone === "string"
+              ? businessHours.timezone
+              : "Australia/Sydney",
+        }
+      : undefined,
+    excludedDangerousPayloadClasses: Array.isArray(
+      data.excludedDangerousPayloadClasses,
+    )
+      ? data.excludedDangerousPayloadClasses.filter(
+          (item): item is string => typeof item === "string",
+        )
+      : undefined,
+    maxRequestsPerScan:
+      typeof data.maxRequestsPerScan === "number"
+        ? data.maxRequestsPerScan
+        : undefined,
+    requestsPerMinute:
+      typeof data.requestsPerMinute === "number"
+        ? data.requestsPerMinute
+        : undefined,
+  };
+}
+
+function parseComparisonProfiles(
+  value: unknown,
+): ScanJob["comparisonProfiles"] {
   if (!Array.isArray(value)) return undefined;
   const roles = new Set([
     "ANONYMOUS",
@@ -247,11 +304,18 @@ function parseComparisonProfiles(value: unknown): ScanJob["comparisonProfiles"] 
             )
           : {};
       const name = typeof row.name === "string" ? row.name : "Custom profile";
-      const role = typeof row.role === "string" && roles.has(row.role)
-        ? row.role
-        : "CUSTOM";
+      const role =
+        typeof row.role === "string" && roles.has(row.role)
+          ? row.role
+          : "CUSTOM";
       return Object.keys(authHeaders).length
-        ? { authHeaders, name, role: role as NonNullable<ScanJob["comparisonProfiles"]>[number]["role"] }
+        ? {
+            authHeaders,
+            name,
+            role: role as NonNullable<
+              ScanJob["comparisonProfiles"]
+            >[number]["role"],
+          }
         : undefined;
     })
     .filter((item): item is NonNullable<typeof item> => Boolean(item));
