@@ -3,7 +3,6 @@ import Link from "next/link";
 import {
   Activity,
   ArrowRight,
-  CheckCircle2,
   FileText,
   Gauge,
   Globe2,
@@ -205,49 +204,6 @@ export default async function HomePage() {
               <h2 className="mt-5 text-lg font-semibold text-white">{title}</h2>
               <p className="mt-3 text-sm leading-6 text-slate-400">{body}</p>
             </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="mx-auto grid max-w-7xl gap-8 px-5 py-14 lg:grid-cols-[.85fr_1.15fr] lg:px-8">
-        <div>
-          <p className="eyebrow">Built for administrators</p>
-          <h2 className="mt-3 text-3xl font-semibold tracking-tight text-white">
-            The public site is simple. The admin console is where the depth
-            lives.
-          </h2>
-          <p className="mt-4 text-sm leading-7 text-slate-400">
-            Probeveil keeps scanning, evidence, reports, scanner health and audit
-            logs inside the signed-in dashboard while this landing page gives
-            the product a clean front door.
-          </p>
-          <div className="mt-6 flex flex-wrap gap-3">
-            <Link className="button" href="/contact">
-              Contact us
-              <Mail size={16} />
-            </Link>
-            <Link className="button-secondary" href={adminHref}>
-              {adminLabel}
-              {session ? <ArrowRight size={16} /> : <LockKeyhole size={16} />}
-            </Link>
-          </div>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {[
-            "Authenticated dashboard access",
-            "Scan mode selection and queued workers",
-            "Route coverage and finding detail",
-            "Report PDF generation",
-            "Scanner health visibility",
-            "Audit logs retained separately",
-          ].map((item) => (
-            <div
-              className="flex items-center gap-3 rounded-lg border border-line bg-white/[.025] px-4 py-3 text-sm text-slate-300"
-              key={item}
-            >
-              <CheckCircle2 className="text-signal" size={17} />
-              {item}
-            </div>
           ))}
         </div>
       </section>

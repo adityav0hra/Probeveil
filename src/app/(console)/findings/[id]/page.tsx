@@ -1,13 +1,14 @@
 import { notFound } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import type { FindingStatus } from "@prisma/client";
-import { ArrowLeft, Download, RotateCcw } from "lucide-react";
+import { ArrowLeft, Download, FileText, RotateCcw } from "lucide-react";
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth";
 import { StatusPill } from "@/components/status-pill";
 import { CopyButton } from "@/components/copy-button";
 import { updateIssueFromFindingReview } from "@/lib/finding-identity/assignment";
+import { buildRemediationAssistant } from "@/lib/remediation-assistant";
 
 export default async function FindingPage({
   params,
@@ -135,6 +136,7 @@ export default async function FindingPage({
   const evidenceText = finding.evidence
     .map((e) => e.content ?? "")
     .join("\n\n");
+  const assistant = buildRemediationAssistant(finding, finding.scan);
   return (
     <>
       <Link
@@ -168,6 +170,13 @@ export default async function FindingPage({
             </button>
           </form>
           <CopyButton value={evidenceText} label="Copy evidence" />
+          <a
+            className="button-secondary"
+            href={`/api/findings/${id}/developer-ticket`}
+          >
+            <FileText size={14} />
+            Generate developer ticket
+          </a>
           <a className="button-secondary" href={`/api/findings/${id}/evidence`}>
             <Download size={14} />
             Download evidence
@@ -224,6 +233,47 @@ export default async function FindingPage({
           <Section title="Remediation">
             <p>{finding.remediation}</p>
           </Section>
+          <Section title="Remediation assistant">
+            <div className="grid gap-4 lg:grid-cols-3">
+              <div className="rounded-lg border border-line bg-black/20 p-4">
+                <p className="eyebrow">Affected code pattern</p>
+                <p className="mt-3 text-sm leading-6 text-slate-400">
+                  {assistant.affectedCodePattern}
+                </p>
+              </div>
+              <div className="rounded-lg border border-line bg-black/20 p-4">
+                <p className="eyebrow">Exact fix guidance</p>
+                <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-400">
+                  {assistant.fixGuidance.map((step) => (
+                    <li key={step}>{step}</li>
+                  ))}
+                </ul>
+              </div>
+              <div className="rounded-lg border border-line bg-black/20 p-4">
+                <p className="eyebrow">Verification steps</p>
+                <ol className="mt-3 list-decimal space-y-2 pl-4 text-sm leading-6 text-slate-400">
+                  {assistant.verificationSteps.map((step) => (
+                    <li key={step}>{step}</li>
+                  ))}
+                </ol>
+              </div>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <form action={`/api/findings/${id}/retest`} method="post">
+                <button className="button-secondary" type="submit">
+                  <RotateCcw size={14} />
+                  Run targeted retest
+                </button>
+              </form>
+              <a
+                className="button-secondary"
+                href={`/api/findings/${id}/developer-ticket`}
+              >
+                <FileText size={14} />
+                Generate developer ticket
+              </a>
+            </div>
+          </Section>
           <Section title="Issue lifecycle">
             {finding.issue ? (
               <div className="space-y-4">
@@ -255,9 +305,7 @@ export default async function FindingPage({
                             {event.eventType.replaceAll("_", " ")} ·{" "}
                             {event.toStatus.replaceAll("_", " ")}
                           </p>
-                          <p className="mt-1 text-slate-500">
-                            {event.summary}
-                          </p>
+                          <p className="mt-1 text-slate-500">{event.summary}</p>
                           <p className="mt-1 text-slate-600">
                             {event.createdAt.toLocaleString()}
                           </p>

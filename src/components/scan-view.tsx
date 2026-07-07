@@ -14,6 +14,7 @@ import {
   Route,
   ShieldAlert,
   StopCircle,
+  Trash2,
 } from "lucide-react";
 import { ScoreRing } from "./score-ring";
 import { StatusPill } from "./status-pill";
@@ -95,6 +96,8 @@ export function ScanView({ id, initial }: { id: string; initial: Scan }) {
   const [scan, setScan] = useState(initial);
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const active = ["QUEUED", "RUNNING"].includes(scan.status);
 
   useEffect(() => {
@@ -117,6 +120,32 @@ export function ScanView({ id, initial }: { id: string; initial: Scan }) {
     [scan.findings],
   );
   const insight = useMemo(() => buildInsight(scan), [scan]);
+
+  async function deleteScan() {
+    if (
+      !window.confirm(
+        "Delete this scan record? This removes its findings, reports, and evidence files from Probeveil.",
+      )
+    )
+      return;
+
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const response = await fetch(`/api/scans/${id}`, { method: "DELETE" });
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        throw new Error(data?.error ?? "Could not delete scan.");
+      }
+      window.location.assign("/admin");
+    } catch (error) {
+      setDeleteError(
+        error instanceof Error ? error.message : "Could not delete scan.",
+      );
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   if (active) {
     return (
@@ -256,8 +285,23 @@ export function ScanView({ id, initial }: { id: string; initial: Scan }) {
             <RefreshCw size={15} />
             Run retest
           </Link>
+          <button
+            className="button-secondary text-red-300"
+            disabled={deleting}
+            onClick={deleteScan}
+            type="button"
+          >
+            <Trash2 size={15} />
+            {deleting ? "Deleting..." : "Delete scan"}
+          </button>
         </div>
       </div>
+
+      {deleteError && (
+        <div className="mt-6 rounded-lg border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-300">
+          {deleteError}
+        </div>
+      )}
 
       {scan.error && (
         <div className="mt-6 rounded-lg border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-300">

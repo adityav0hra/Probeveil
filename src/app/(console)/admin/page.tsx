@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowUpRight, Plus } from "lucide-react";
 import { db } from "@/lib/db";
 import { StatusPill } from "@/components/status-pill";
+import { DeleteScanHistoryButton } from "@/components/delete-scan-history-button";
 
 export default async function AdminDashboardPage() {
   const scans = await db.scan.findMany({
@@ -25,6 +26,7 @@ export default async function AdminDashboardPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <DeleteScanHistoryButton />
           <Link className="button" href="/scans/new">
             <Plus size={16} />
             New scan
