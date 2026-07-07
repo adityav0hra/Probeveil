@@ -49,6 +49,18 @@ export type ReportScanData = {
     category?: string | null;
     evidence?: string | null;
   }>;
+  assets?: Array<{
+    id: string;
+    kind: string;
+    status: string;
+    label: string;
+    value: string;
+    url?: string | null;
+    hostname?: string | null;
+    firstSeenAt: Date | string;
+    lastSeenAt: Date | string;
+    observationCount: number;
+  }>;
   findings: Array<{
     id: string;
     issueId?: string | null;

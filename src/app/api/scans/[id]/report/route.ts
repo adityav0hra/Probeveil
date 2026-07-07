@@ -28,6 +28,7 @@ export async function GET(
   const scan = await db.scan.findUnique({
     include: {
       attackPaths: true,
+      assets: { orderBy: [{ kind: "asc" }, { lastSeenAt: "desc" }] },
       endpoints: { include: { parameters: true }, orderBy: { url: "asc" } },
       findings: { include: { evidence: true, issue: true } },
       services: true,

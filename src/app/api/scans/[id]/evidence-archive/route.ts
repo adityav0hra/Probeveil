@@ -80,6 +80,14 @@ function getArchiveScan(id: string) {
   return db.scan.findUnique({
     include: {
       artifacts: { orderBy: [{ type: "asc" }, { createdAt: "asc" }] },
+      assetEvents: {
+        include: { asset: true },
+        orderBy: { createdAt: "desc" },
+      },
+      assets: {
+        include: { events: { orderBy: { createdAt: "desc" }, take: 10 } },
+        orderBy: [{ kind: "asc" }, { lastSeenAt: "desc" }],
+      },
       attackPaths: true,
       endpoints: { include: { parameters: true }, orderBy: { url: "asc" } },
       findings: {
@@ -192,6 +200,8 @@ function buildArchiveEntries(
     jsonEntry("route-inventory/routes.json", routeInventory),
     textEntry("route-inventory/routes.csv", routeInventoryCsv(routeInventory)),
     jsonEntry("route-inventory/targets.json", scan.targets),
+    jsonEntry("asset-inventory/assets.json", scan.assets),
+    jsonEntry("asset-inventory/events.json", scan.assetEvents),
     jsonEntry("findings/findings.json", findingRows),
     jsonEntry("scanner-logs/stages.json", scan.stages),
     textEntry("scanner-logs/stages.ndjson", scan.stages.map(jsonLine).join("")),

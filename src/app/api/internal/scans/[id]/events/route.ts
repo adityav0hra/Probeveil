@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { updateAssetInventoryForScan } from "@/lib/asset-inventory/assignment";
 import { assignFindingIssues } from "@/lib/finding-identity/assignment";
 import { processScanIntegrations } from "@/lib/integrations/providers";
 import { processScanNotifications } from "@/lib/notifications/scan-notifications";
@@ -378,6 +379,7 @@ export async function POST(
       },
     });
     await evaluateTargetedRetest(id);
+    await safelyUpdateAssetInventory(id);
     await safelyAssignFindingIssues(id);
     await safelyProcessScanNotifications(id);
     await safelyProcessScanIntegrations(id);
@@ -398,6 +400,17 @@ export async function POST(
     );
   }
   return NextResponse.json({ ok: true });
+}
+
+async function safelyUpdateAssetInventory(scanId: string) {
+  try {
+    await updateAssetInventoryForScan(scanId);
+  } catch (error) {
+    console.error("Asset inventory update failed", {
+      error: error instanceof Error ? error.message : String(error),
+      scanId,
+    });
+  }
 }
 
 async function safelyAssignFindingIssues(scanId: string) {

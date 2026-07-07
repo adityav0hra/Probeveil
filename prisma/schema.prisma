@@ -77,6 +77,28 @@ enum IssueLifecycleEventType {
   TRIAGED
 }
 
+enum AssetKind {
+  DOMAIN
+  ENDPOINT
+  API
+  LOGIN_PAGE
+  ADMIN_ROUTE
+  TECHNOLOGY
+  SERVICE
+}
+
+enum AssetStatus {
+  ACTIVE
+  MISSING
+}
+
+enum AssetEventType {
+  DISCOVERED
+  OBSERVED
+  CHANGED
+  MISSING
+}
+
 enum ReportType {
   EXECUTIVE_HTML
   TECHNICAL_HTML
@@ -251,6 +273,8 @@ model Scan {
   endpoints      Endpoint[]
   services       Service[]
   technologies   Technology[]
+  assets         AssetInventoryItem[]
+  assetEvents    AssetInventoryEvent[]
   findings       Finding[]
   attackPaths    AttackPath[]
   retests        Retest[]
@@ -415,6 +439,57 @@ model Technology {
   @@unique([scanId, name, version])
 }
 
+model AssetInventoryItem {
+  id                String                @id @default(cuid())
+  normalizedHash    String
+  identityKey       String
+  kind              AssetKind
+  status            AssetStatus           @default(ACTIVE)
+  label             String
+  value             String                @db.Text
+  url               String?               @db.Text
+  hostname          String?
+  method            String?
+  port              Int?
+  protocol          String?
+  technologyName    String?
+  technologyVersion String?
+  metadata          Json?
+  firstSeenAt       DateTime
+  lastSeenAt        DateTime
+  lastChangedAt     DateTime?
+  lastMissingAt     DateTime?
+  lastScanId        String?
+  lastScan          Scan?                 @relation(fields: [lastScanId], references: [id], onDelete: SetNull)
+  observationCount  Int                   @default(0)
+  events            AssetInventoryEvent[]
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  @@unique([normalizedHash, kind, identityKey])
+  @@index([normalizedHash, status])
+  @@index([kind, status, lastSeenAt])
+  @@index([hostname])
+}
+
+model AssetInventoryEvent {
+  id             String             @id @default(cuid())
+  assetId        String
+  asset          AssetInventoryItem @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  scanId         String?
+  scan           Scan?              @relation(fields: [scanId], references: [id], onDelete: SetNull)
+  eventType      AssetEventType
+  previousStatus AssetStatus?
+  nextStatus     AssetStatus
+  summary        String             @db.Text
+  metadata       Json?
+  createdAt      DateTime           @default(now())
+
+  @@index([assetId, createdAt])
+  @@index([scanId, eventType])
+  @@index([eventType, createdAt])
+}
+
 model Finding {
   id                 String                @id @default(cuid())
   scanId             String
@@ -464,26 +539,26 @@ model Finding {
 }
 
 model FindingIssue {
-  id              String                    @id @default(cuid())
+  id              String               @id @default(cuid())
   normalizedHash  String
   identityKey     String
   title           String
   category        String
   cwe             String?
   scannerRuleId   String
-  affectedUrl     String?                   @db.Text
+  affectedUrl     String?              @db.Text
   parameter       String?
   severity        Severity
-  status          IssueLifecycleStatus      @default(ACTIVE)
+  status          IssueLifecycleStatus @default(ACTIVE)
   firstSeenAt     DateTime
   lastSeenAt      DateTime
   lastResolvedAt  DateTime?
   lastScanId      String?
-  occurrenceCount Int                       @default(0)
+  occurrenceCount Int                  @default(0)
   findings        Finding[]
   events          FindingIssueEvent[]
-  createdAt       DateTime                  @default(now())
-  updatedAt       DateTime                  @updatedAt
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
 
   @@unique([normalizedHash, identityKey])
   @@index([normalizedHash, status])
@@ -491,18 +566,18 @@ model FindingIssue {
 }
 
 model FindingIssueEvent {
-  id             String                  @id @default(cuid())
-  issueId        String
-  issue          FindingIssue            @relation(fields: [issueId], references: [id], onDelete: Cascade)
-  scanId         String?
-  findingId      String?
-  finding        Finding?                @relation(fields: [findingId], references: [id], onDelete: SetNull)
-  eventType      IssueLifecycleEventType
-  fromStatus     IssueLifecycleStatus?
-  toStatus       IssueLifecycleStatus
-  severity       Severity?
-  summary        String                  @db.Text
-  createdAt      DateTime                @default(now())
+  id         String                  @id @default(cuid())
+  issueId    String
+  issue      FindingIssue            @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  scanId     String?
+  findingId  String?
+  finding    Finding?                @relation(fields: [findingId], references: [id], onDelete: SetNull)
+  eventType  IssueLifecycleEventType
+  fromStatus IssueLifecycleStatus?
+  toStatus   IssueLifecycleStatus
+  severity   Severity?
+  summary    String                  @db.Text
+  createdAt  DateTime                @default(now())
 
   @@index([issueId, createdAt])
   @@index([scanId, eventType])
