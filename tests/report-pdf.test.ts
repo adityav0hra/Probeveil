@@ -100,4 +100,22 @@ describe("security report PDF renderer", () => {
       new RegExp(["assess", "ment"].join(""), "i"),
     );
   });
+
+  it("renders compliance-style report modes with mapped evidence", () => {
+    const owasp = renderSecurityReportPdf(scan, "owasp-top-10");
+    const remediation = renderSecurityReportPdf(scan, "remediation-tracking");
+
+    expect(owasp.subarray(0, 8).toString()).toBe("%PDF-1.4");
+    expect(remediation.subarray(0, 8).toString()).toBe("%PDF-1.4");
+
+    const owaspText = owasp.toString("latin1");
+    const remediationText = remediation.toString("latin1");
+
+    expect(owaspText).toContain("OWASP Top 10 Report");
+    expect(owaspText).toContain("Broken Access Control");
+    expect(owaspText).toContain("Control mapping");
+    expect(remediationText).toContain("Remediation Tracking Report");
+    expect(remediationText).toContain("Finding lifecycle tracker");
+    expect(remediationText).toContain("Retest scope");
+  });
 });

@@ -9,6 +9,11 @@ import {
   getReportProductName,
   REPORT_TEMPLATE_VERSION,
 } from "./report-version";
+import {
+  complianceRowsForKind,
+  isComplianceReportKind,
+  remediationTrackingRows,
+} from "./compliance";
 import { reportKindConfig, type SecurityReportKind } from "./report-types";
 
 const width = 612;
@@ -172,7 +177,7 @@ class PdfDoc {
           size: 7.5,
           width: cardWidth - 20,
         });
-        const valueSize = fitFontSize(card.value, cardWidth - 20, 18, 12);
+        const valueSize = fitFontSize(card.value, cardWidth - 20, 18, 8);
         const valueHeight = this.text(card.value, x + 10, this.y + 40, {
           color: navy,
           font: "bold",
@@ -619,6 +624,7 @@ function buildSections(
     },
   ];
 
+  if (isComplianceReportKind(kind)) return complianceSections(scan, kind);
   if (kind === "executive") return common;
 
   return [
@@ -821,6 +827,196 @@ function buildSections(
   ];
 }
 
+function complianceSections(
+  scan: ReportScanData,
+  kind: SecurityReportKind,
+): Section[] {
+  const metrics = reportMetrics(scan);
+  const rows = complianceRowsForKind(scan, kind);
+  const needsRemediation = rows.filter((row) =>
+    ["Needs remediation", "Needs review"].includes(row.status),
+  ).length;
+  const mappedFindings = rows.reduce((sum, row) => sum + row.findingCount, 0);
+  const baseSections: Section[] = [
+    {
+      title: reportKindConfig[kind].label,
+      render: (pdf) => {
+        pdf.metricCards([
+          { label: "Security score", value: `${metrics.securityScore}/100` },
+          { label: "Controls reviewed", value: String(rows.length) },
+          { label: "Needs action", value: String(needsRemediation) },
+          { label: "Mapped findings", value: String(mappedFindings) },
+          { label: "Highest severity", value: metrics.highestSeverity },
+          { label: "Evidence records", value: String(evidenceCount(scan)) },
+        ]);
+        pdf.paragraph(complianceNarrative(scan, kind, needsRemediation));
+        pdf.callout(
+          "Use of this report",
+          "This report maps automated Probeveil evidence to security control themes for review and remediation planning. It does not certify compliance, replace a formal audit or prove the absence of vulnerabilities.",
+        );
+      },
+    },
+    {
+      title: "Control mapping",
+      render: (pdf) => {
+        pdf.table(
+          ["Control", "Theme", "Status", "Findings", "Severity", "Evidence"],
+          rows.length
+            ? rows.map((row) => [
+                row.control,
+                row.title,
+                row.status,
+                String(row.findingCount),
+                row.highestSeverity,
+                row.evidence,
+              ])
+            : [["-", "No mapped rows", "-", "0", "-", "-"]],
+          [62, 126, 82, 48, 58, 142],
+          { small: true },
+        );
+      },
+    },
+    {
+      title: "Remediation guidance",
+      render: (pdf) => {
+        pdf.table(
+          ["Control", "Status", "Recommended action"],
+          rows.length
+            ? rows.map((row) => [row.control, row.status, row.remediation])
+            : [["-", "-", "Maintain scheduled scanning and evidence review."]],
+          [82, 104, 332],
+          { small: true },
+        );
+      },
+    },
+    {
+      title: "Coverage and evidence basis",
+      render: (pdf) => {
+        pdf.table(
+          ["Area", "Discovered", "Tested", "Skipped", "Failed", "Coverage"],
+          coverageRows(scan).map((row) => [
+            row.area,
+            String(row.discovered),
+            String(row.tested),
+            String(row.skipped),
+            String(row.failed),
+            `${row.coverage}%`,
+          ]),
+          [130, 76, 68, 68, 64, 112],
+        );
+        pdf.paragraph(
+          "Evidence is drawn from recorded findings, route inventory, API observations, technology signals, asset inventory, scanner stages and stored request/response excerpts where available.",
+        );
+      },
+    },
+    {
+      title: "Review limitations",
+      render: (pdf) => {
+        pdf.callout(
+          "Limitations",
+          "Framework mappings are automated control themes. Final control ownership, compensating controls, accepted risk, audit sampling and policy evidence require human review by the organization.",
+        );
+      },
+    },
+  ];
+
+  if (kind === "remediation-tracking") {
+    return [
+      ...baseSections.slice(0, 1),
+      {
+        title: "Finding lifecycle tracker",
+        render: (pdf) => {
+          pdf.table(
+            [
+              "Priority",
+              "Issue",
+              "Status",
+              "Severity",
+              "Finding",
+              "Next action",
+            ],
+            remediationTrackingRows(scan).map((row) => [
+              row.priority,
+              row.issueId,
+              row.status,
+              row.severity,
+              row.title,
+              row.ownerAction,
+            ]),
+            [58, 70, 78, 54, 122, 136],
+            { small: true },
+          );
+        },
+      },
+      {
+        title: "Retest scope",
+        render: (pdf) => {
+          pdf.table(
+            ["Issue", "Affected location", "Retest scope"],
+            remediationTrackingRows(scan).map((row) => [
+              row.issueId,
+              row.affectedLocation,
+              row.retestScope,
+            ]),
+            [82, 176, 260],
+            { small: true },
+          );
+        },
+      },
+      ...baseSections.slice(2),
+    ];
+  }
+
+  if (kind === "executive-risk") {
+    return [
+      baseSections[0],
+      {
+        title: "Executive risk register",
+        render: (pdf) => {
+          pdf.table(
+            ["Risk area", "Status", "Findings", "Severity", "Decision needed"],
+            rows.map((row) => [
+              row.title,
+              row.status,
+              String(row.findingCount),
+              row.highestSeverity,
+              row.remediation,
+            ]),
+            [140, 86, 54, 58, 180],
+            { small: true },
+          );
+        },
+      },
+      baseSections[3],
+      baseSections[4],
+    ];
+  }
+
+  return baseSections;
+}
+
+function complianceNarrative(
+  scan: ReportScanData,
+  kind: SecurityReportKind,
+  needsRemediation: number,
+) {
+  const label = reportKindConfig[kind].label;
+  const hostname = scanHostname(scan);
+  const findingCount = scan.findings.length;
+  const action =
+    needsRemediation > 0
+      ? `${needsRemediation} mapped control area${needsRemediation === 1 ? " requires" : "s require"} review or remediation.`
+      : "No mapped control area currently requires automated remediation.";
+  return `This ${label} summarizes Probeveil evidence for ${hostname}. The scan recorded ${findingCount} finding${findingCount === 1 ? "" : "s"} across the tested attack surface. ${action}`;
+}
+
+function evidenceCount(scan: ReportScanData) {
+  return scan.findings.reduce(
+    (sum, finding) => sum + (finding.evidence?.length ?? 0),
+    0,
+  );
+}
+
 function executiveNarrative(scan: ReportScanData) {
   const metrics = reportMetrics(scan);
   const risk =
@@ -1014,10 +1210,18 @@ function fitFontSize(
   minimum: number,
 ) {
   let size = preferred;
-  while (size > minimum && wrapText(value, maxWidth, size).length > 1) {
+  while (size > minimum && approximateTextWidth(value, size) > maxWidth) {
     size -= 0.5;
   }
   return size;
+}
+
+function approximateTextWidth(value: string, fontSize: number) {
+  return Math.max(
+    ...sanitisePdfText(value)
+      .split("\n")
+      .map((line) => line.length * fontSize * 0.62),
+  );
 }
 
 function wrapText(value: string, maxWidth: number, fontSize: number) {

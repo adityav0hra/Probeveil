@@ -412,6 +412,48 @@ function ReportsPanel({ scanId }: { scanId: string }) {
         "Detailed vulnerabilities, evidence excerpts, routes and diagnostics.",
     },
     {
+      label: "OWASP Top 10 PDF",
+      href: `/api/scans/${scanId}/report?format=pdf&type=owasp-top-10`,
+      action: "Download OWASP PDF",
+      detail:
+        "Control mapping for OWASP Top 10 themes with evidence and remediation guidance.",
+    },
+    {
+      label: "CWE Mapping PDF",
+      href: `/api/scans/${scanId}/report?format=pdf&type=cwe`,
+      action: "Download CWE PDF",
+      detail:
+        "Weakness taxonomy view grouped by CWE with affected locations and fixes.",
+    },
+    {
+      label: "PCI-Style Controls PDF",
+      href: `/api/scans/${scanId}/report?format=pdf&type=pci-web-controls`,
+      action: "Download PCI PDF",
+      detail:
+        "PCI-style web control evidence for TLS, auth, access control, configuration and logging.",
+    },
+    {
+      label: "SOC 2 Evidence PDF",
+      href: `/api/scans/${scanId}/report?format=pdf&type=soc2-evidence`,
+      action: "Download SOC 2 PDF",
+      detail:
+        "SOC 2 evidence support mapped to access, monitoring, change and risk themes.",
+    },
+    {
+      label: "Executive Risk PDF",
+      href: `/api/scans/${scanId}/report?format=pdf&type=executive-risk`,
+      action: "Download Risk PDF",
+      detail:
+        "Board-ready risk register with material issues, recurring exposure and decision points.",
+    },
+    {
+      label: "Remediation Tracker PDF",
+      href: `/api/scans/${scanId}/report?format=pdf&type=remediation-tracking`,
+      action: "Download Tracker PDF",
+      detail:
+        "Finding lifecycle tracker with status, owner action and retest scope.",
+    },
+    {
       label: "HTML Report",
       href: `/api/scans/${scanId}/report?format=html`,
       action: "Download HTML",

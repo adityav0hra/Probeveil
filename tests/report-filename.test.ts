@@ -43,6 +43,24 @@ describe("report filename utilities", () => {
     expect(
       buildReportFilename({
         completedAt: "2026-07-04T02:30:00.000Z",
+        kind: "owasp-top-10",
+        productName: "Probeveil",
+        url: "https://example.com",
+      }),
+    ).toBe("Probeveil-example-com-OWASP-Top-10-Report-2026-07-04.pdf");
+    expect(
+      buildReportFilename({
+        completedAt: "2026-07-04T02:30:00.000Z",
+        kind: "soc2-evidence",
+        productName: "Probeveil",
+        url: "https://example.com",
+      }),
+    ).toBe(
+      "Probeveil-example-com-SOC-2-Evidence-Support-Report-2026-07-04.pdf",
+    );
+    expect(
+      buildReportFilename({
+        completedAt: "2026-07-04T02:30:00.000Z",
         kind: "technical",
         productName: "Probeveil",
         url: "https://example.com",

@@ -14,6 +14,11 @@ import { reportMetrics } from "@/lib/reports/report-metrics";
 import { renderSecurityReportPdf } from "@/lib/reports/pdf-renderer";
 import { parseReportKind, reportKindConfig } from "@/lib/reports/report-types";
 import {
+  complianceRowsForKind,
+  isComplianceReportKind,
+  remediationTrackingRows,
+} from "@/lib/reports/compliance";
+import {
   REPORT_GENERATOR_VERSION,
   REPORT_TEMPLATE_VERSION,
   getReportProductName,
@@ -51,6 +56,11 @@ export async function GET(
           generatedAt: new Date().toISOString(),
           limitation:
             "This scan performs automated security testing across the discovered attack surface. Automated scanning cannot mathematically guarantee that every vulnerability has been identified.",
+          reportMode: reportKindConfig[kind].label,
+          compliance:
+            isComplianceReportKind(kind) || kind === "technical"
+              ? complianceRowsForKind(reportScan, kind)
+              : [],
           metrics: reportMetrics(reportScan),
           scan,
         },
@@ -67,9 +77,9 @@ export async function GET(
   }
 
   if (format === "csv") {
-    return new NextResponse(csvExport(reportScan), {
+    return new NextResponse(csvExport(reportScan, kind), {
       headers: {
-        "content-disposition": `attachment; filename=probeveil-${id}-findings.csv`,
+        "content-disposition": `attachment; filename=probeveil-${id}-${reportKindConfig[kind].filenameLabel}.csv`,
         "content-type": "text/csv; charset=utf-8",
       },
     });
@@ -147,7 +157,7 @@ export async function GET(
     });
   }
 
-  return new NextResponse(htmlReport(reportScan), {
+  return new NextResponse(htmlReport(reportScan, kind), {
     headers: {
       "content-disposition": `attachment; filename=probeveil-${id}.html`,
       "content-type": "text/html; charset=utf-8",
@@ -155,8 +165,9 @@ export async function GET(
   });
 }
 
-function htmlReport(scan: ReportScanData) {
+function htmlReport(scan: ReportScanData, kind = parseReportKind(null)) {
   const metrics = reportMetrics(scan);
+  const complianceRows = complianceRowsForKind(scan, kind);
   const rows = scan.findings
     .map(
       (finding) =>
@@ -175,6 +186,13 @@ function htmlReport(scan: ReportScanData) {
     )
     .join("");
   const productName = escapeHtml(getReportProductName());
+  const reportLabel = escapeHtml(reportKindConfig[kind].label);
+  const complianceHtml = complianceRows
+    .map(
+      (row) =>
+        `<tr><td>${escapeHtml(row.framework)}</td><td>${escapeHtml(row.control)}</td><td>${escapeHtml(row.title)}</td><td>${escapeHtml(row.status)}</td><td>${row.findingCount}</td><td>${escapeHtml(row.highestSeverity)}</td><td>${escapeHtml(row.evidence)}</td></tr>`,
+    )
+    .join("");
   return `<!doctype html><html><head><meta charset="utf-8"><title>${productName} report</title><style>
     body{font:14px/1.55 system-ui,-apple-system,Segoe UI,sans-serif;margin:40px;color:#101820;background:#fbfcfd}
     h1{font-size:30px;margin-bottom:4px} h2{margin-top:30px;border-bottom:1px solid #d9e1e8;padding-bottom:8px}
@@ -182,36 +200,92 @@ function htmlReport(scan: ReportScanData) {
     .card b{display:block;font-size:24px;margin-top:8px}table{width:100%;border-collapse:collapse;background:white;border:1px solid #d9e1e8}td,th{padding:10px;border-bottom:1px solid #e8edf2;text-align:left}
   </style></head><body>
     <h1>${productName} security report</h1>
+    <p><strong>${reportLabel}</strong></p>
     <p>${escapeHtml(canonicalScanUrl(scan))}</p>
     <div class="grid"><div class="card">Security score<b>${metrics.securityScore}/100</b></div><div class="card">Coverage<b>${metrics.coverageScore}%</b></div><div class="card">Confidence<b>${metrics.confidenceScore}%</b></div><div class="card">Findings<b>${metrics.totalFindings}</b></div><div class="card">Evasion signals<b>${metrics.evasionSignals}</b></div></div>
+    ${
+      complianceRows.length
+        ? `<h2>Compliance-style mapping</h2><table><thead><tr><th>Framework</th><th>Control</th><th>Theme</th><th>Status</th><th>Findings</th><th>Severity</th><th>Evidence</th></tr></thead><tbody>${complianceHtml}</tbody></table>`
+        : ""
+    }
     <h2>Evasion and coverage controls</h2><table><thead><tr><th>Signal</th><th>Severity</th><th>Confidence</th><th>Affected location</th></tr></thead><tbody>${evasionRows || "<tr><td colspan='4'>No evasion signals recorded.</td></tr>"}</tbody></table>
     <h2>Findings</h2><table><thead><tr><th>Severity</th><th>Finding</th><th>Confidence</th><th>Affected location</th></tr></thead><tbody>${rows || "<tr><td colspan='4'>No findings recorded.</td></tr>"}</tbody></table>
   </body></html>`;
 }
 
-function csvExport(scan: ReportScanData) {
-  const rows = [
-    [
-      "ID",
-      "Issue ID",
-      "Issue status",
-      "Severity",
-      "Confidence",
-      "Status",
-      "Title",
-      "Affected location",
-    ],
-    ...scan.findings.map((finding) => [
-      finding.id,
-      finding.issueId ?? "",
-      finding.issue?.status ?? "",
-      finding.severity,
-      finding.confidence,
-      finding.status,
-      finding.title,
-      finding.affectedUrl ?? "",
-    ]),
-  ];
+function csvExport(
+  scan: ReportScanData,
+  kind: ReturnType<typeof parseReportKind>,
+) {
+  const rows =
+    kind === "remediation-tracking"
+      ? [
+          [
+            "Priority",
+            "Issue ID",
+            "Status",
+            "Severity",
+            "Finding",
+            "Affected location",
+            "Owner action",
+            "Retest scope",
+          ],
+          ...remediationTrackingRows(scan).map((row) => [
+            row.priority,
+            row.issueId,
+            row.status,
+            row.severity,
+            row.title,
+            row.affectedLocation,
+            row.ownerAction,
+            row.retestScope,
+          ]),
+        ]
+      : isComplianceReportKind(kind)
+        ? [
+            [
+              "Framework",
+              "Control",
+              "Theme",
+              "Status",
+              "Findings",
+              "Highest severity",
+              "Evidence",
+              "Remediation",
+            ],
+            ...complianceRowsForKind(scan, kind).map((row) => [
+              row.framework,
+              row.control,
+              row.title,
+              row.status,
+              row.findingCount,
+              row.highestSeverity,
+              row.evidence,
+              row.remediation,
+            ]),
+          ]
+        : [
+            [
+              "ID",
+              "Issue ID",
+              "Issue status",
+              "Severity",
+              "Confidence",
+              "Status",
+              "Title",
+              "Affected location",
+            ],
+            ...scan.findings.map((finding) => [
+              finding.id,
+              finding.issueId ?? "",
+              finding.issue?.status ?? "",
+              finding.severity,
+              finding.confidence,
+              finding.status,
+              finding.title,
+              finding.affectedUrl ?? "",
+            ]),
+          ];
   return rows
     .map((row) =>
       row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","),
