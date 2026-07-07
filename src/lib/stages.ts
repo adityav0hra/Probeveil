@@ -2,6 +2,7 @@ export const PASSIVE_STAGES = [
   ["validate", "Validating URL"],
   ["dns", "Resolving DNS"],
   ["surface", "Discovering attack surface"],
+  ["auth-verify", "Verifying authenticated access"],
   ["crawl", "Crawling website"],
   ["evasion", "Detecting evasion signals"],
   ["exposure-probes", "Checking exposed sensitive files"],

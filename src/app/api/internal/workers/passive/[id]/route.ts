@@ -17,6 +17,9 @@ export async function POST(
     request.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
   if (!verifyWorkerToken(token, id))
     return new NextResponse("Unauthorized", { status: 401 });
+  const requestOptions = scanOptions(
+    await request.json().catch(() => undefined),
+  );
 
   const scan = await db.scan.findUnique({
     where: { id },
@@ -63,8 +66,10 @@ export async function POST(
   });
 
   const origin = new URL(request.url).origin;
-  const options = scanOptions(scan.targets[0]?.metadata);
+  const metadataOptions = scanOptions(scan.targets[0]?.metadata);
+  const options = mergeScanOptions(metadataOptions, requestOptions);
   const job: ScanJob = {
+    auth: options.auth,
     authHeaders: options.authHeaders,
     features: options.features,
     mode: scan.mode,
@@ -134,13 +139,35 @@ export async function POST(
   }
 }
 
-function scanOptions(value: unknown): Pick<ScanJob, "authHeaders" | "features"> {
+function scanOptions(
+  value: unknown,
+): Pick<ScanJob, "auth" | "authHeaders" | "features"> {
   if (!value || typeof value !== "object") return {};
   const data = value as {
+    auth?: Record<string, unknown>;
     authHeaders?: Record<string, unknown>;
     features?: Record<string, unknown>;
   };
   return {
+    auth: {
+      contextName:
+        typeof data.auth?.contextName === "string"
+          ? data.auth.contextName
+          : undefined,
+      expectedText:
+        typeof data.auth?.expectedText === "string"
+          ? data.auth.expectedText
+          : undefined,
+      routeSeeds: Array.isArray(data.auth?.routeSeeds)
+        ? data.auth.routeSeeds.filter(
+            (item): item is string => typeof item === "string",
+          )
+        : undefined,
+      verificationPath:
+        typeof data.auth?.verificationPath === "string"
+          ? data.auth.verificationPath
+          : undefined,
+    },
     authHeaders: Object.fromEntries(
       Object.entries(data.authHeaders ?? {}).filter(
         (entry): entry is [string, string] => typeof entry[1] === "string",
@@ -150,6 +177,29 @@ function scanOptions(value: unknown): Pick<ScanJob, "authHeaders" | "features"> 
       apiDiscovery: Boolean(data.features?.apiDiscovery),
       browserRendering: Boolean(data.features?.browserRendering),
       screenshots: Boolean(data.features?.screenshots),
+    },
+  };
+}
+
+function mergeScanOptions(
+  fallback: Pick<ScanJob, "auth" | "authHeaders" | "features">,
+  preferred: Pick<ScanJob, "auth" | "authHeaders" | "features">,
+) {
+  return {
+    auth: {
+      ...fallback.auth,
+      ...preferred.auth,
+      routeSeeds: preferred.auth?.routeSeeds?.length
+        ? preferred.auth.routeSeeds
+        : fallback.auth?.routeSeeds,
+    },
+    authHeaders: {
+      ...fallback.authHeaders,
+      ...preferred.authHeaders,
+    },
+    features: {
+      ...fallback.features,
+      ...preferred.features,
     },
   };
 }

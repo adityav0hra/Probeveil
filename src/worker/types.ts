@@ -1,4 +1,10 @@
 export type ScanJob = {
+  auth?: {
+    contextName?: string;
+    expectedText?: string;
+    routeSeeds?: string[];
+    verificationPath?: string;
+  };
   authHeaders?: Record<string, string>;
   features?: {
     apiDiscovery?: boolean;

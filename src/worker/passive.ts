@@ -244,7 +244,9 @@ export async function runPassive(
   const seen = new Set<string>();
   const routeCandidates = new Map<string, { url: URL; source: string }>();
   const authenticatedFetch = { authHeaders: job.authHeaders ?? {} };
+  const authSeedUrls = authenticatedRouteSeeds(root, job.auth);
   let finalUrl = job.url;
+  let authVerification: AuthVerificationResult | undefined;
 
   await stage(emit, "validate", async () => {
     await validateDestination(root);
@@ -368,6 +370,22 @@ export async function runPassive(
       await emit({
         type: "technologies",
         technologies: [...technologies.values()],
+      });
+  });
+  await stage(emit, "auth-verify", async () => {
+    if (!hasAuthHeaders(job)) return;
+    authVerification = await verifyAuthenticatedAccess({
+      auth: job.auth,
+      authHeaders: authenticatedFetch.authHeaders,
+      fallbackUrl: new URL(finalUrl),
+      root,
+      seeds: authSeedUrls,
+    });
+    findings.push(authVerificationFinding(authVerification, job.auth));
+    for (const seed of authSeedUrls)
+      routeCandidates.set(seed.toString(), {
+        url: seed,
+        source: "authenticated-route-seed",
       });
   });
   const headers = response.headers;
@@ -579,14 +597,16 @@ export async function runPassive(
   await ensureRunning(cancelled);
   await stage(emit, "crawl", async () => {
     const limit = job.mode === "QUICK" ? 25 : job.mode === "FULL" ? 100 : 250;
-    const queue: Array<{ url: URL; depth: number }> = [
+    const queue: Array<{ url: URL; depth: number; source?: string }> = [
       { url: new URL(finalUrl), depth: 0 },
-      new URL("/robots.txt", finalUrl),
-      new URL("/sitemap.xml", finalUrl),
-    ].map((url, i) => ({
-      url: url instanceof URL ? url : url.url,
-      depth: i === 0 ? 0 : 1,
-    }));
+      ...authSeedUrls.map((url) => ({
+        source: "authenticated-route-seed",
+        url,
+        depth: 1,
+      })),
+      { url: new URL("/robots.txt", finalUrl), depth: 1 },
+      { url: new URL("/sitemap.xml", finalUrl), depth: 1 },
+    ];
     while (queue.length && seen.size < limit) {
       await ensureRunning(cancelled);
       const current = queue.shift()!;
@@ -622,7 +642,7 @@ export async function runPassive(
             page.contentType,
             current.depth,
             true,
-            isExternal ? "external-link" : "http-crawler",
+            current.source ?? (isExternal ? "external-link" : "http-crawler"),
             page.body,
           ),
           external: isExternal,
@@ -876,7 +896,9 @@ export async function runPassive(
   });
   await stage(emit, "manual-review", async () => {
     if (job.authHeaders && Object.keys(job.authHeaders).length)
-      findings.push(authenticatedCoverageFinding(finalUrl));
+      findings.push(
+        authenticatedCoverageFinding(finalUrl, authVerification, authSeedUrls),
+      );
     if (job.features?.apiDiscovery)
       findings.push(...apiCoverageFindings(dedupeEndpoints(endpoints), root));
     for (const task of parameterReviewTasks([...parameters.values()]))
@@ -1918,11 +1940,224 @@ function evasionFinding({
   };
 }
 
-function authenticatedCoverageFinding(affectedUrl: string): FindingInput {
+type AuthVerificationResult = {
+  anonymous?: SafeResponse;
+  authenticated?: SafeResponse;
+  expectedTextMatched: boolean;
+  reason: string;
+  url: string;
+  verified: boolean;
+};
+
+function hasAuthHeaders(job: ScanJob) {
+  return Boolean(job.authHeaders && Object.keys(job.authHeaders).length);
+}
+
+function authenticatedRouteSeeds(root: URL, auth: ScanJob["auth"]) {
+  const defaults = [
+    "/dashboard",
+    "/account",
+    "/profile",
+    "/settings",
+    "/admin",
+    "/billing",
+    "/invoices",
+    "/orders",
+    "/exports",
+    "/download",
+    "/api/me",
+    "/api/user",
+    "/api/account",
+  ];
+  const raw = [
+    auth?.verificationPath,
+    ...(auth?.routeSeeds ?? []),
+    ...(auth?.routeSeeds?.length ? [] : defaults),
+  ].filter(Boolean) as string[];
+  const urls: URL[] = [];
+  for (const value of raw) {
+    try {
+      const url = new URL(value, root);
+      url.hash = "";
+      if (isSameOriginOrSubdomain(url, root)) urls.push(url);
+    } catch {}
+  }
+  return [
+    ...new Map(urls.map((url) => [canonical(url), url])).values(),
+  ].slice(0, 60);
+}
+
+async function verifyAuthenticatedAccess({
+  auth,
+  authHeaders,
+  fallbackUrl,
+  root,
+  seeds,
+}: {
+  auth: ScanJob["auth"];
+  authHeaders: Record<string, string>;
+  fallbackUrl: URL;
+  root: URL;
+  seeds: URL[];
+}): Promise<AuthVerificationResult> {
+  const target = seeds[0] ?? fallbackUrl;
+  let anonymous: SafeResponse | undefined;
+  let authenticated: SafeResponse | undefined;
+  try {
+    anonymous = await safeFetch(target, root);
+  } catch {}
+  try {
+    authenticated = await safeFetch(target, root, { authHeaders });
+  } catch (error) {
+    return {
+      anonymous,
+      expectedTextMatched: false,
+      reason: `Authenticated request failed: ${error instanceof Error ? error.message : String(error)}`,
+      url: target.toString(),
+      verified: false,
+    };
+  }
+
+  const expectedTextMatched = auth?.expectedText
+    ? authenticated.body.toLowerCase().includes(auth.expectedText.toLowerCase())
+    : false;
+  const anonymousLogin = anonymous ? looksLikeLoginOrDenied(anonymous) : true;
+  const authenticatedLogin = looksLikeLoginOrDenied(authenticated);
+  const materialDifference = anonymous
+    ? responseBodyHash(anonymous) !== responseBodyHash(authenticated) ||
+      anonymous.status !== authenticated.status ||
+      new URL(anonymous.url).pathname !== new URL(authenticated.url).pathname
+    : true;
+  const verified =
+    authenticated.status < 400 &&
+    !authenticatedLogin &&
+    (expectedTextMatched ||
+      anonymousLogin ||
+      materialDifference ||
+      protectedPath(target));
+
+  return {
+    anonymous,
+    authenticated,
+    expectedTextMatched,
+    reason: verified
+      ? "Authenticated context reached a signed-in surface."
+      : "Authenticated context did not clearly reach a signed-in surface.",
+    url: target.toString(),
+    verified,
+  };
+}
+
+function authVerificationFinding(
+  result: AuthVerificationResult,
+  auth: ScanJob["auth"],
+): FindingInput {
+  const title = result.verified
+    ? "Authenticated scanning verified signed-in access"
+    : "Authenticated scanning did not verify signed-in access";
+  const evidence = [
+    `context=${auth?.contextName || "authenticated session"}`,
+    `verification_url=${result.url}`,
+    `expected_text_matched=${result.expectedTextMatched}`,
+    `result=${result.reason}`,
+    "",
+    "anonymous_request",
+    result.anonymous ? authResponseSummary(result.anonymous) : "not captured",
+    "",
+    "authenticated_request",
+    result.authenticated
+      ? authResponseSummary(result.authenticated)
+      : "not captured",
+  ].join("\n");
+  return {
+    title,
+    description: result.verified
+      ? "Probeveil verified that the supplied authenticated context reaches a signed-in application surface. Subsequent same-origin crawling used the supplied authentication headers."
+      : "Probeveil received authentication headers, but the verification path did not clearly prove signed-in access. Results may still represent mostly public coverage.",
+    category: "Authenticated coverage",
+    cwe: "CWE-284",
+    owaspCategory: "Access Control",
+    severity: result.verified ? "INFO" : "LOW",
+    confidence: result.verified ? "HIGH" : "POTENTIAL",
+    affectedUrl: result.url,
+    httpMethod: "GET",
+    scannerName: "Probeveil Authenticated Scanner",
+    scannerRuleId: result.verified
+      ? "coverage/authenticated-verified"
+      : "coverage/authenticated-not-verified",
+    scannerVersion: "1.0.0",
+    fingerprint: createHash("sha256")
+      .update(`coverage/auth-verify|${result.url}|${result.verified}`)
+      .digest("hex"),
+    impact: result.verified
+      ? "The scan can inspect routes and controls that are hidden from anonymous users."
+      : "Important routes such as dashboards, account pages, exports, settings, invoices or user data may be missing from the result set.",
+    remediation: result.verified
+      ? "Add separate normal-user and admin contexts to compare role boundaries and cross-account access."
+      : "Refresh the session cookie or authorization token, set a verification path that only signed-in users can load, and include expected signed-in text such as account, dashboard or sign out.",
+    reproductionSteps: [
+      "Create a scan with a valid Cookie or Authorization header from an approved signed-in session.",
+      "Set a protected verification path such as /dashboard, /account, /settings, /invoices or /admin.",
+      "Optionally set expected signed-in text visible only after login.",
+      "Run the scan and confirm this finding reports verified signed-in access.",
+    ],
+    references: [
+      "https://owasp.org/API-Security/editions/2023/en/0xa1-broken-object-level-authorization/",
+      "https://owasp.org/www-project-web-security-testing-guide/",
+    ],
+    evidence: [
+      {
+        type: "AUTHENTICATED_COVERAGE",
+        title: "Authenticated access verification",
+        content: evidence,
+      },
+    ],
+  };
+}
+
+function looksLikeLoginOrDenied(response: SafeResponse) {
+  const url = new URL(response.url);
+  const body = response.body.slice(0, 12000);
+  return (
+    [401, 403].includes(response.status) ||
+    /\/(?:login|sign-in|signin|auth|session)(?:\/|$|\?)/i.test(url.pathname) ||
+    /\b(?:sign in|log in|login|password|forgot password|authentication required|access denied|unauthorized)\b/i.test(
+      body,
+    )
+  );
+}
+
+function protectedPath(url: URL) {
+  return /\/(?:dashboard|account|profile|settings|admin|billing|invoices|orders|exports?|download|users?|me)(?:\/|$|\?)/i.test(
+    url.pathname,
+  );
+}
+
+function authResponseSummary(response: SafeResponse) {
+  return [
+    `url=${response.url}`,
+    `status=${response.status}`,
+    `content_type=${response.contentType ?? "unknown"}`,
+    `title=${response.body.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim() ?? "not captured"}`,
+    `location=${response.headers.location ?? "none"}`,
+    `body_length=${response.body.length}`,
+    `body_sha256=${responseBodyHash(response)}`,
+  ].join("\n");
+}
+
+function responseBodyHash(response: SafeResponse) {
+  return createHash("sha256").update(response.body).digest("hex").slice(0, 16);
+}
+
+function authenticatedCoverageFinding(
+  affectedUrl: string,
+  verification: AuthVerificationResult | undefined,
+  seeds: URL[],
+): FindingInput {
   return {
     title: "Authenticated scan context was used",
     description:
-      "Probeveil used administrator-provided authentication headers for same-origin requests during this scan. This improves coverage for signed-in application areas, but role and account comparison still requires multiple approved credentials.",
+      "Probeveil used administrator-provided authentication headers for same-origin requests during this scan and prioritized protected route seeds such as dashboards, accounts, settings, invoices, exports and admin pages.",
     category: "Authenticated coverage",
     cwe: "CWE-284",
     owaspCategory: "Access Control",
@@ -1952,8 +2187,16 @@ function authenticatedCoverageFinding(affectedUrl: string): FindingInput {
       {
         type: "COVERAGE_CONTEXT",
         title: "Authenticated scan context",
-        content:
+        content: [
           "Authentication headers were configured for this scan. Header values are intentionally not exported.",
+          `verification=${verification?.verified ? "verified" : "not verified"}`,
+          `verification_url=${verification?.url ?? "not configured"}`,
+          `route_seed_count=${seeds.length}`,
+          seeds
+            .slice(0, 25)
+            .map((url) => url.toString())
+            .join("\n"),
+        ].join("\n"),
       },
     ],
   };

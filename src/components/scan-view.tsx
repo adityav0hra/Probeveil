@@ -503,6 +503,9 @@ function buildInsight(scan: Scan) {
   const hiddenRoutes = scan.endpoints.filter((endpoint) =>
     endpoint.discoveredBy?.startsWith("hidden-surface"),
   ).length;
+  const authenticatedRoutes = scan.endpoints.filter(
+    (endpoint) => endpoint.discoveredBy === "authenticated-route-seed",
+  ).length;
   const manualReview = scan.findings.filter(
     (finding) => finding.confidence === "MANUAL_REVIEW",
   ).length;
@@ -575,6 +578,7 @@ function buildInsight(scan: Scan) {
       ["Parameters found", parameters.length],
       ["Sensitive fields", sensitiveParameters],
       ["Hidden candidates", hiddenRoutes],
+      ["Authenticated routes", authenticatedRoutes],
       ["Technologies inferred", scan.technologies.length],
       ["Manual-review tasks", manualReview],
       ["Evasion signals", evasionSignals.length],

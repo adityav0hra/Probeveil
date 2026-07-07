@@ -55,6 +55,7 @@ export async function POST(request: Request) {
 
   const normalizedHash = urlFingerprint(normalizedUrl);
   const authHeaders = scanAuthHeaders(parsed.data);
+  const auth = scanAuthOptions(parsed.data);
   const features = {
     apiDiscovery: parsed.data.apiDiscovery,
     browserRendering: parsed.data.browserRendering,
@@ -103,7 +104,14 @@ export async function POST(request: Request) {
           inScope: true,
           kind: "PRIMARY",
           metadata: {
-            authHeaders,
+            auth: {
+              contextName: auth.contextName,
+              expectedTextConfigured: Boolean(auth.expectedText),
+              routeSeeds: auth.routeSeeds,
+              verificationPath: auth.verificationPath,
+            },
+            authHeaderConfigured: Boolean(authHeaders.authorization),
+            cookieHeaderConfigured: Boolean(authHeaders.cookie),
             features,
           },
           reason: "Submitted scan target",
@@ -123,6 +131,7 @@ export async function POST(request: Request) {
         "passive",
         {
           mode: parsed.data.mode,
+          auth,
           authHeaders,
           features,
           scanId: scan.id,
@@ -159,6 +168,9 @@ export async function POST(request: Request) {
         metadata: {
           authHeaderConfigured: Boolean(authHeaders.authorization),
           cookieHeaderConfigured: Boolean(authHeaders.cookie),
+          authContextName: auth.contextName,
+          authRouteSeedCount: auth.routeSeeds?.length ?? 0,
+          authVerificationPath: auth.verificationPath,
           features,
           mode: parsed.data.mode,
           normalizedUrl,
@@ -171,7 +183,11 @@ export async function POST(request: Request) {
   ]);
 
   if (workerType === "SERVERLESS_PASSIVE_HTTP")
-    schedulePassiveWorkerKick(request, scan.id, token);
+    schedulePassiveWorkerKick(request, scan.id, token, {
+      auth,
+      authHeaders,
+      features,
+    });
 
   if (!isJson) {
     return NextResponse.redirect(
@@ -193,6 +209,34 @@ function scanAuthHeaders(data: {
   };
 }
 
+function scanAuthOptions(data: {
+  authContextName?: string;
+  authExpectedText?: string;
+  authRouteSeeds?: string;
+  authVerificationPath?: string;
+}) {
+  return {
+    ...(data.authContextName ? { contextName: data.authContextName } : {}),
+    ...(data.authExpectedText ? { expectedText: data.authExpectedText } : {}),
+    routeSeeds: routeSeedsFromText(data.authRouteSeeds ?? ""),
+    ...(data.authVerificationPath
+      ? { verificationPath: data.authVerificationPath }
+      : {}),
+  };
+}
+
+function routeSeedsFromText(value: string) {
+  return [
+    ...new Set(
+      value
+        .split(/\r?\n|,/)
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .slice(0, 40),
+    ),
+  ];
+}
+
 function shouldUseBullMq() {
   if (process.env.SCAN_QUEUE_DRIVER === "serverless") return false;
   if (process.env.SCAN_QUEUE_DRIVER === "bullmq") return true;
@@ -204,13 +248,22 @@ function shouldUseBullMq() {
   );
 }
 
-function schedulePassiveWorkerKick(request: Request, scanId: string, token: string) {
+function schedulePassiveWorkerKick(
+  request: Request,
+  scanId: string,
+  token: string,
+  options: Pick<import("@/worker/types").ScanJob, "auth" | "authHeaders" | "features">,
+) {
   const url = new URL(`/api/internal/workers/passive/${scanId}`, request.url);
   after(async () => {
     try {
       await fetch(url, {
+        body: JSON.stringify(options),
         cache: "no-store",
-        headers: { authorization: `Bearer ${token}` },
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
         method: "POST",
         signal: AbortSignal.timeout(300_000),
       });

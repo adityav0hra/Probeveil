@@ -90,6 +90,18 @@ export function NewScanForm({
         <div className="mt-4 grid gap-4">
           <label className="block">
             <span className="text-sm font-medium text-slate-200">
+              Authenticated context name
+            </span>
+            <input
+              autoComplete="off"
+              className="input mt-2"
+              name="authContextName"
+              placeholder="Admin session, normal user, billing user"
+              type="text"
+            />
+          </label>
+          <label className="block">
+            <span className="text-sm font-medium text-slate-200">
               Authorization header
             </span>
             <input
@@ -110,6 +122,42 @@ export function NewScanForm({
               name="cookieHeader"
               placeholder="session=..."
               type="password"
+            />
+          </label>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="block">
+              <span className="text-sm font-medium text-slate-200">
+                Verify signed-in path
+              </span>
+              <input
+                autoComplete="off"
+                className="input mt-2"
+                name="authVerificationPath"
+                placeholder="/dashboard or https://site.com/account"
+                type="text"
+              />
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-slate-200">
+                Expected signed-in text
+              </span>
+              <input
+                autoComplete="off"
+                className="input mt-2"
+                name="authExpectedText"
+                placeholder="Dashboard, Account, Sign out"
+                type="text"
+              />
+            </label>
+          </div>
+          <label className="block">
+            <span className="text-sm font-medium text-slate-200">
+              Authenticated route seeds
+            </span>
+            <textarea
+              className="input mt-2 min-h-28 resize-y"
+              name="authRouteSeeds"
+              placeholder={"/dashboard\n/account\n/admin\n/settings\n/invoices\n/export"}
             />
           </label>
         </div>

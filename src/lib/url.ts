@@ -7,7 +7,11 @@ export const createScanSchema = z.object({
     .union([z.literal("on"), z.boolean()])
     .optional()
     .transform(Boolean),
+  authContextName: z.string().trim().max(120).optional().default(""),
+  authExpectedText: z.string().trim().max(500).optional().default(""),
   authHeader: z.string().trim().max(2000).optional().default(""),
+  authRouteSeeds: z.string().trim().max(6000).optional().default(""),
+  authVerificationPath: z.string().trim().max(2048).optional().default(""),
   browserRendering: z
     .union([z.literal("on"), z.boolean()])
     .optional()
