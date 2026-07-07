@@ -37,6 +37,11 @@ export function reportMetrics(scan: ReportScanData) {
   const manualReviewTasks = findings.filter(
     (finding) => finding.confidence === "MANUAL_REVIEW",
   );
+  const evasionSignals = findings.filter(
+    (finding) =>
+      finding.category === "Evasion signal" ||
+      finding.scannerRuleId?.startsWith("evasion/"),
+  );
   const severityCounts = countBy(severityOrder, findings, "severity").filter(
     (item) => item.value > 0,
   );
@@ -86,6 +91,7 @@ export function reportMetrics(scan: ReportScanData) {
     ).length,
     coverageScore: scan.coverageScore ?? 0,
     failedStages: failedStages.length,
+    evasionSignals: evasionSignals.length,
     graphQlEndpoints: endpoints.filter((endpoint) =>
       /graphql/i.test(endpoint.url),
     ).length,

@@ -16,6 +16,12 @@ const FIELD_TOKEN =
   /\b(?:role|isAdmin|admin|ownerId|userId|tenantId|accountId|price|amount|status|state|redirect|callback|returnUrl|next|url|file|path|template|query|filter|sort|limit|offset|token|secret|invite|approve|publish|archive)\b/gi;
 const SECRET_VALUE_TOKEN =
   /\b(?:api[_-]?key|secret|token|password|passwd|pwd|private[_-]?key|access[_-]?key|client[_-]?secret|database[_-]?url|jwt|stripe|sendgrid|mailgun|aws[_-]?access|aws[_-]?secret|github[_-]?token)\b\s*[:=]\s*["']?[A-Za-z0-9_./+=:@%$!#-]{8,}/i;
+const EVASION_CHALLENGE_TOKEN =
+  /\b(?:captcha|hcaptcha|recaptcha|turnstile|checking your browser|browser verification|access denied|request blocked|bot detected|automated traffic|security challenge|ddos protection|cf-chl|akamai|imperva|incapsula|datadome|perimeterx|distil|cloudflare)\b/i;
+const CLIENT_REDIRECT_TOKEN =
+  /(?:http-equiv=["']refresh|window\.location|location\.href|document\.location|setTimeout\s*\(\s*function\s*\(\)\s*{\s*(?:window\.)?location)/i;
+const HIDDEN_TRAP_TOKEN =
+  /<(?:a|input|textarea|select)\b(?=[^>]*(?:display\s*:\s*none|visibility\s*:\s*hidden|opacity\s*:\s*0|left\s*:\s*-\d|top\s*:\s*-\d|aria-hidden=["']true|tabindex=["']-1|name=["'](?:url|website|homepage|company|fax|confirm_email|email_confirm|hp|honeypot)["']))[^>]*>/i;
 const EXPOSURE_CANDIDATES: Array<{
   path: string;
   rule: string;
@@ -675,6 +681,17 @@ export async function runPassive(
         type: "technologies",
         technologies: [...technologies.values()],
       });
+  });
+  await stage(emit, "evasion", async () => {
+    findings.push(
+      ...(await detectEvasionSignals({
+        artifacts,
+        baseline: response,
+        job,
+        root,
+        target: new URL(finalUrl),
+      })),
+    );
   });
   await stage(emit, "exposure-probes", async () => {
     const exposureCandidates = exposureProbeCandidates(new URL(finalUrl));
@@ -1421,6 +1438,457 @@ function analyseDifferential(observations: ProbeObservation[]) {
   return undefined;
 }
 
+async function detectEvasionSignals({
+  artifacts,
+  baseline,
+  job,
+  root,
+  target,
+}: {
+  artifacts: PageArtifact[];
+  baseline: SafeResponse;
+  job: ScanJob;
+  root: URL;
+  target: URL;
+}) {
+  const findings: FindingInput[] = [];
+  const baselineChallenge = challengeEvidence(baseline);
+  if (baselineChallenge)
+    findings.push(
+      evasionFinding({
+        title: "Scanner-facing bot or WAF challenge detected",
+        severity: baseline.status === 429 ? "MEDIUM" : "LOW",
+        confidence: "HIGH",
+        affectedUrl: baseline.url,
+        rule: "evasion/challenge-page",
+        impact:
+          "The scanner received a security challenge or bot-management response, so later findings may underrepresent routes, parameters or vulnerabilities hidden behind that control.",
+        remediation:
+          "Document the control owner, create an approved scanner allowlist or authenticated test path where appropriate, and repeat scans from the same network policy used by administrators.",
+        evidence: baselineChallenge,
+      }),
+    );
+
+  const robots = robotsEvidence(artifacts, target);
+  if (robots)
+    findings.push(
+      evasionFinding({
+        title: "Robots policy suppresses broad crawl coverage",
+        severity: "INFO",
+        confidence: "HIGH",
+        affectedUrl: robots.url,
+        rule: "evasion/robots-crawl-suppression",
+        impact:
+          "A restrictive robots policy can reduce discovery coverage for automated tools and search crawlers, which may make security reports look cleaner than the reachable application really is.",
+        remediation:
+          "Treat robots rules as coverage context, not access control. Ensure sensitive routes enforce authentication and add authenticated scan coverage for administrative or private areas.",
+        evidence: robots.evidence,
+      }),
+    );
+
+  const trap = hiddenTrapEvidence(artifacts);
+  if (trap)
+    findings.push(
+      evasionFinding({
+        title: "Hidden bot-trap controls were observed",
+        severity: "INFO",
+        confidence: "PROBABLE",
+        affectedUrl: trap.url,
+        rule: "evasion/bot-trap-control",
+        impact:
+          "Hidden fields or links can intentionally flag automated clients. If they are active in production, scanner traffic may be classified differently than normal user traffic.",
+        remediation:
+          "Confirm that bot-trap controls do not block approved security testing and that reports distinguish intentionally blocked coverage from absence of findings.",
+        evidence: trap.evidence,
+      }),
+    );
+
+  const clientRedirect = clientRedirectEvidence(artifacts);
+  if (clientRedirect)
+    findings.push(
+      evasionFinding({
+        title: "Client-side redirect or verification flow detected",
+        severity: "LOW",
+        confidence: "PROBABLE",
+        affectedUrl: clientRedirect.url,
+        rule: "evasion/client-side-verification",
+        impact:
+          "JavaScript redirects or browser-verification flows can make a non-browser scanner observe a different route than an interactive user.",
+        remediation:
+          "Keep server-side authorization consistent across pre-verification and post-verification routes, and provide an approved browser-capable scan profile for final validation.",
+        evidence: clientRedirect.evidence,
+      }),
+    );
+
+  const profileObservations = await clientProfileObservations(target, root, job);
+  const profileFinding = profileDependentFinding(
+    baseline,
+    profileObservations,
+  );
+  if (profileFinding) findings.push(profileFinding);
+
+  const rateLimitObservation = profileObservations.find(
+    (item) =>
+      item.status === 429 ||
+      item.headers["retry-after"] ||
+      /rate.?limit|too many requests/i.test(item.body.slice(0, 5000)),
+  );
+  if (rateLimitObservation)
+    findings.push(
+      evasionFinding({
+        title: "Rate-limit or throttling signal encountered",
+        severity: "LOW",
+        confidence: "HIGH",
+        affectedUrl: rateLimitObservation.url,
+        rule: "evasion/rate-limit-signal",
+        impact:
+          "The target signalled throttling during a bounded scan. This can intentionally protect the application, but it can also lower coverage and hide issues behind partial results.",
+        remediation:
+          "Define a safe scan window, source allowlist and request budget for approved testing, then compare coverage before and after throttling controls engage.",
+        evidence: renderProfileObservation(rateLimitObservation),
+      }),
+    );
+
+  return dedupeFindings(findings);
+}
+
+type ClientProfileObservation = {
+  label: string;
+  url: string;
+  status?: number;
+  title?: string;
+  headers: Record<string, string>;
+  body: string;
+  contentType?: string;
+  error?: string;
+};
+
+async function clientProfileObservations(
+  target: URL,
+  root: URL,
+  job: ScanJob,
+): Promise<ClientProfileObservation[]> {
+  const profiles: Array<{ label: string; init: RequestInit }> = [
+    {
+      label: "browser-like",
+      init: {
+        headers: {
+          accept:
+            "text/html,application/xhtml+xml,application/xml;q=.9,image/avif,image/webp,*/*;q=.8",
+          "accept-language": "en-US,en;q=.9",
+          "user-agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36",
+        },
+      },
+    },
+    {
+      label: "minimal-client",
+      init: {
+        headers: {
+          accept: "*/*",
+          "user-agent": "Probeveil-Minimal/1.0",
+        },
+      },
+    },
+    {
+      label: "json-client",
+      init: {
+        headers: {
+          accept: "application/json,*/*;q=.2",
+          "user-agent": "Probeveil-API/1.0",
+        },
+      },
+    },
+  ];
+  if (job.mode === "MAXIMUM")
+    profiles.push({
+      label: "head-request",
+      init: { method: "HEAD", headers: { "user-agent": "Probeveil/1.0" } },
+    });
+
+  const observations: ClientProfileObservation[] = [];
+  for (const profile of profiles) {
+    try {
+      const response = await safeFetch(target, root, profile.init);
+      observations.push({
+        label: profile.label,
+        url: response.url,
+        status: response.status,
+        title: response.body.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1],
+        headers: response.headers,
+        body: response.body,
+        contentType: response.contentType,
+      });
+    } catch (error) {
+      observations.push({
+        label: profile.label,
+        url: target.toString(),
+        headers: {},
+        body: "",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return observations;
+}
+
+function profileDependentFinding(
+  baseline: SafeResponse,
+  observations: ClientProfileObservation[],
+) {
+  const baselineProfile: ClientProfileObservation = {
+    label: "scanner-default",
+    url: baseline.url,
+    status: baseline.status,
+    title: baseline.body.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1],
+    headers: baseline.headers,
+    body: baseline.body,
+    contentType: baseline.contentType,
+  };
+  const profiles = [baselineProfile, ...observations];
+  const drift = observations.filter(
+    (item) => isMaterialProfileDrift(baselineProfile, item),
+  );
+  if (!drift.length) return undefined;
+  const challengeDrift = drift.some((item) => challengeEvidenceFromProfile(item));
+  const evidence = profiles.map(renderProfileObservation).join("\n\n");
+  return evasionFinding({
+    title: challengeDrift
+      ? "Client profile dependent challenge behavior detected"
+      : "Client profile dependent response behavior detected",
+    severity: challengeDrift ? "MEDIUM" : "LOW",
+    confidence: "HIGH",
+    affectedUrl: baseline.url,
+    rule: "evasion/client-profile-drift",
+    impact:
+      "Different benign client profiles received materially different responses. This can be intentional bot management, but it can also hide application paths or make scanner results differ from real user behavior.",
+    remediation:
+      "Record which profile is considered authoritative for testing, allow approved scanner traffic where appropriate, and verify that security controls are enforced consistently across client profiles.",
+    evidence,
+  });
+}
+
+function isMaterialProfileDrift(
+  baseline: ClientProfileObservation,
+  candidate: ClientProfileObservation,
+) {
+  if (candidate.error) return true;
+  if (statusClass(candidate.status) !== statusClass(baseline.status))
+    return true;
+  if (
+    Boolean(challengeEvidenceFromProfile(candidate)) !==
+    Boolean(challengeEvidenceFromProfile(baseline))
+  )
+    return true;
+  if ((candidate.headers.location ?? "") !== (baseline.headers.location ?? ""))
+    return true;
+  if (
+    mediaType(candidate.contentType) &&
+    mediaType(baseline.contentType) &&
+    mediaType(candidate.contentType) !== mediaType(baseline.contentType)
+  )
+    return true;
+
+  const baselineLength = normalizedLength(baseline.body);
+  const candidateLength = normalizedLength(candidate.body);
+  const larger = Math.max(baselineLength, candidateLength);
+  const smaller = Math.max(1, Math.min(baselineLength, candidateLength));
+  const titleChanged =
+    (candidate.title?.trim() ?? "") !== (baseline.title?.trim() ?? "");
+  return titleChanged && larger / smaller >= 1.5;
+}
+
+function statusClass(status: number | undefined) {
+  return status ? Math.floor(status / 100) : 0;
+}
+
+function mediaType(contentType: string | undefined) {
+  return contentType?.split(";")[0]?.trim().toLowerCase();
+}
+
+function normalizedLength(value: string) {
+  return value.replace(/\s+/g, " ").trim().length;
+}
+
+function challengeEvidence(response: SafeResponse) {
+  return challengeEvidenceFromProfile({
+    label: "scanner-default",
+    url: response.url,
+    status: response.status,
+    title: response.body.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1],
+    headers: response.headers,
+    body: response.body,
+    contentType: response.contentType,
+  });
+}
+
+function challengeEvidenceFromProfile(item: ClientProfileObservation) {
+  const headerText = renderHeaders(item.headers);
+  const excerpt = item.body.slice(0, 6000);
+  const matched =
+    item.status === 403 ||
+    item.status === 429 ||
+    EVASION_CHALLENGE_TOKEN.test(headerText) ||
+    EVASION_CHALLENGE_TOKEN.test(excerpt);
+  if (!matched) return undefined;
+  return [
+    renderProfileObservation(item),
+    "",
+    "Matched challenge indicators:",
+    matchingTokens(`${headerText}\n${excerpt}`, EVASION_CHALLENGE_TOKEN).join(
+      ", ",
+    ) || "status/header/body challenge signal",
+  ].join("\n");
+}
+
+function robotsEvidence(artifacts: PageArtifact[], target: URL) {
+  const robots = artifacts.find((item) => {
+    try {
+      return new URL(item.url).pathname === "/robots.txt";
+    } catch {
+      return false;
+    }
+  });
+  if (!robots || robots.status >= 400) return undefined;
+  const disallows = [...robots.body.matchAll(/^\s*disallow\s*:\s*(.+)$/gim)]
+    .map((match) => match[1].trim())
+    .filter(Boolean);
+  const broad = disallows.some((path) => path === "/" || path === "/*");
+  const many = disallows.length >= 8;
+  if (!broad && !many) return undefined;
+  return {
+    url: new URL("/robots.txt", target).toString(),
+    evidence: [
+      `robots_url=${robots.url}`,
+      `status=${robots.status}`,
+      `disallow_count=${disallows.length}`,
+      broad ? "broad_disallow=true" : undefined,
+      "",
+      robots.body.slice(0, 8000),
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  };
+}
+
+function hiddenTrapEvidence(artifacts: PageArtifact[]) {
+  for (const item of artifacts) {
+    const match = item.body.match(HIDDEN_TRAP_TOKEN);
+    if (!match) continue;
+    return {
+      url: item.url,
+      evidence: [
+        `url=${item.url}`,
+        `status=${item.status}`,
+        "Matched hidden control:",
+        match[0].slice(0, 1000),
+      ].join("\n"),
+    };
+  }
+  return undefined;
+}
+
+function clientRedirectEvidence(artifacts: PageArtifact[]) {
+  for (const item of artifacts) {
+    if (!CLIENT_REDIRECT_TOKEN.test(item.body)) continue;
+    return {
+      url: item.url,
+      evidence: [
+        `url=${item.url}`,
+        `status=${item.status}`,
+        "Matched client-side redirect or verification token in response body.",
+        item.body.slice(0, 3000),
+      ].join("\n"),
+    };
+  }
+  return undefined;
+}
+
+function renderProfileObservation(item: ClientProfileObservation) {
+  return [
+    `${item.label} ${item.url}`,
+    `status=${item.status ?? "error"} content-type=${item.contentType ?? "unknown"} title=${item.title?.trim() || "not captured"}`,
+    item.headers.location ? `location=${item.headers.location}` : undefined,
+    item.headers.server ? `server=${item.headers.server}` : undefined,
+    item.headers["cf-ray"] ? `cf-ray=${item.headers["cf-ray"]}` : undefined,
+    item.headers["retry-after"]
+      ? `retry-after=${item.headers["retry-after"]}`
+      : undefined,
+    item.error ? `error=${item.error}` : undefined,
+    `body_sha256=${createHash("sha256").update(item.body).digest("hex").slice(0, 16)}`,
+    item.body ? `body_excerpt=${item.body.slice(0, 1200)}` : undefined,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function matchingTokens(input: string, token: RegExp) {
+  return [...new Set(input.match(token)?.map((value) => value) ?? [])].slice(
+    0,
+    6,
+  );
+}
+
+function evasionFinding({
+  affectedUrl,
+  confidence,
+  evidence,
+  impact,
+  remediation,
+  rule,
+  severity,
+  title,
+}: {
+  affectedUrl: string;
+  confidence: FindingInput["confidence"];
+  evidence: string;
+  impact: string;
+  remediation: string;
+  rule: string;
+  severity: FindingInput["severity"];
+  title: string;
+}): FindingInput {
+  return {
+    title,
+    description: [
+      `${title} was observed on ${affectedUrl}.`,
+      "Probeveil classifies this as an evasion signal: behavior that can cause automated security testing to see a different application surface than a normal, approved browser session.",
+    ].join(" "),
+    category: "Evasion signal",
+    cwe: "CWE-693",
+    owaspCategory: "Security Monitoring and Coverage",
+    severity,
+    confidence,
+    affectedUrl,
+    httpMethod: "GET",
+    scannerName: "Probeveil Evasion Detector",
+    scannerRuleId: rule,
+    scannerVersion: "1.0.0",
+    fingerprint: createHash("sha256").update(`${rule}|${affectedUrl}`).digest(
+      "hex",
+    ),
+    impact,
+    remediation,
+    reproductionSteps: [
+      `Request ${affectedUrl} with the scanner, browser-like and minimal client profiles documented in the evidence.`,
+      "Compare status code, redirect target, challenge indicators, response title, cache policy and body hash.",
+      "Confirm whether the difference is intentional protection, coverage loss, or inconsistent server-side control enforcement.",
+      "After policy updates, rerun the scan and confirm the same approved profile reaches the intended test surface.",
+    ],
+    references: [
+      "https://owasp.org/www-project-web-security-testing-guide/",
+      "https://owasp.org/www-project-automated-threats-to-web-applications/",
+    ],
+    evidence: [
+      {
+        type: "EVASION_SIGNAL",
+        title: "Observed evasion or coverage-control evidence",
+        content: evidence,
+      },
+    ],
+  };
+}
+
 function manualReviewFinding(task: ReviewTask, rootUrl: string): FindingInput {
   return {
     title: task.title,
@@ -1488,6 +1956,10 @@ function dedupeReviewTasks(tasks: ReviewTask[]) {
       tasks.map((task) => [`${task.title}|${task.url}`, task]),
     ).values(),
   ];
+}
+
+function dedupeFindings(findings: FindingInput[]) {
+  return [...new Map(findings.map((finding) => [finding.fingerprint, finding])).values()];
 }
 
 function renderObservation(item: ProbeObservation) {

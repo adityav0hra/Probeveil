@@ -162,16 +162,28 @@ function htmlReport(scan: ReportScanData) {
         `<tr><td>${escapeHtml(finding.severity)}</td><td>${escapeHtml(finding.title)}</td><td>${escapeHtml(finding.confidence)}</td><td>${escapeHtml(finding.affectedUrl ?? "Not captured")}</td></tr>`,
     )
     .join("");
+  const evasionRows = scan.findings
+    .filter(
+      (finding) =>
+        finding.category === "Evasion signal" ||
+        finding.scannerRuleId?.startsWith("evasion/"),
+    )
+    .map(
+      (finding) =>
+        `<tr><td>${escapeHtml(finding.title)}</td><td>${escapeHtml(finding.severity)}</td><td>${escapeHtml(finding.confidence)}</td><td>${escapeHtml(finding.affectedUrl ?? "Not captured")}</td></tr>`,
+    )
+    .join("");
   const productName = escapeHtml(getReportProductName());
   return `<!doctype html><html><head><meta charset="utf-8"><title>${productName} report</title><style>
     body{font:14px/1.55 system-ui,-apple-system,Segoe UI,sans-serif;margin:40px;color:#101820;background:#fbfcfd}
     h1{font-size:30px;margin-bottom:4px} h2{margin-top:30px;border-bottom:1px solid #d9e1e8;padding-bottom:8px}
-    .grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:24px 0}.card{background:white;border:1px solid #d9e1e8;border-radius:8px;padding:16px}
+    .grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px;margin:24px 0}.card{background:white;border:1px solid #d9e1e8;border-radius:8px;padding:16px}
     .card b{display:block;font-size:24px;margin-top:8px}table{width:100%;border-collapse:collapse;background:white;border:1px solid #d9e1e8}td,th{padding:10px;border-bottom:1px solid #e8edf2;text-align:left}
   </style></head><body>
     <h1>${productName} security report</h1>
     <p>${escapeHtml(canonicalScanUrl(scan))}</p>
-    <div class="grid"><div class="card">Security score<b>${metrics.securityScore}/100</b></div><div class="card">Coverage<b>${metrics.coverageScore}%</b></div><div class="card">Confidence<b>${metrics.confidenceScore}%</b></div><div class="card">Findings<b>${metrics.totalFindings}</b></div></div>
+    <div class="grid"><div class="card">Security score<b>${metrics.securityScore}/100</b></div><div class="card">Coverage<b>${metrics.coverageScore}%</b></div><div class="card">Confidence<b>${metrics.confidenceScore}%</b></div><div class="card">Findings<b>${metrics.totalFindings}</b></div><div class="card">Evasion signals<b>${metrics.evasionSignals}</b></div></div>
+    <h2>Evasion and coverage controls</h2><table><thead><tr><th>Signal</th><th>Severity</th><th>Confidence</th><th>Affected location</th></tr></thead><tbody>${evasionRows || "<tr><td colspan='4'>No evasion signals recorded.</td></tr>"}</tbody></table>
     <h2>Findings</h2><table><thead><tr><th>Severity</th><th>Finding</th><th>Confidence</th><th>Affected location</th></tr></thead><tbody>${rows || "<tr><td colspan='4'>No findings recorded.</td></tr>"}</tbody></table>
   </body></html>`;
 }

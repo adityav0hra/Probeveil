@@ -29,8 +29,8 @@ const capabilityCards = [
     accent: "text-emerald-300",
   },
   {
-    title: "Advanced scanner orchestration",
-    body: "Coordinates Probeveil passive checks with external engines such as Nuclei, then normalizes results into one clean admin workflow.",
+    title: "Evasion-aware coverage",
+    body: "Flags bot challenges, crawl suppression, throttling, hidden traps and client-profile differences that can make scans miss reachable application behavior.",
     icon: TerminalSquare,
     accent: "text-amber-300",
   },
@@ -53,6 +53,7 @@ const flow = [
 const metrics = [
   ["Coverage", "Route depth, assets, forms and external links"],
   ["Confidence", "Signal strength behind every finding"],
+  ["Evasion", "Bot-management and crawl-control signals"],
   ["Impact", "Severity, exploitability and business context"],
 ];
 
@@ -142,7 +143,7 @@ export default async function HomePage() {
                 Online
               </div>
             </div>
-            <div className="grid gap-4 p-5 md:grid-cols-3">
+            <div className="grid gap-4 p-5 md:grid-cols-4">
               {metrics.map(([label, body]) => (
                 <div
                   className="rounded-lg border border-line bg-white/[.025] p-4"

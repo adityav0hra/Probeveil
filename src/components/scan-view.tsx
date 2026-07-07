@@ -40,6 +40,7 @@ type Finding = {
   httpMethod?: string;
   impact: string;
   remediation: string;
+  scannerRuleId?: string;
 };
 type Endpoint = {
   id: string;
@@ -277,7 +278,7 @@ export function ScanView({ id, initial }: { id: string; initial: Scan }) {
         ))}
       </div>
 
-      <section className="mt-6 grid gap-4 lg:grid-cols-3">
+      <section className="mt-6 grid gap-4 lg:grid-cols-4">
         <InsightCard
           icon={<ShieldAlert size={18} />}
           title="Risk readout"
@@ -295,6 +296,12 @@ export function ScanView({ id, initial }: { id: string; initial: Scan }) {
           title="Fix order"
           value={insight.fixReadout}
           detail={insight.fixDetail}
+        />
+        <InsightCard
+          icon={<OctagonX size={18} />}
+          title="Evasion signals"
+          value={insight.evasionReadout}
+          detail={insight.evasionDetail}
         />
       </section>
 
@@ -496,6 +503,11 @@ function buildInsight(scan: Scan) {
   const manualReview = scan.findings.filter(
     (finding) => finding.confidence === "MANUAL_REVIEW",
   ).length;
+  const evasionSignals = scan.findings.filter(
+    (finding) =>
+      finding.category === "Evasion signal" ||
+      finding.scannerRuleId?.startsWith("evasion/"),
+  );
   const parameters = scan.endpoints.flatMap(
     (endpoint) => endpoint.parameters ?? [],
   );
@@ -542,6 +554,12 @@ function buildInsight(scan: Scan) {
     fixDetail: topCategory
       ? `${topCategory} has the largest cluster of findings, so one platform-level change may reduce several observations at once.`
       : "Keep the evidence export as a baseline for future comparison.",
+    evasionReadout: evasionSignals.length
+      ? `${evasionSignals.length} signal${evasionSignals.length === 1 ? "" : "s"} detected`
+      : "No evasion signals",
+    evasionDetail: evasionSignals.length
+      ? "Review bot-management, crawl suppression and client-profile differences before treating scan coverage as complete."
+      : "No bot challenge, cloaking or crawl-suppression signal was recorded by the automated checks.",
     coverageInterpretation:
       coverage >= 85
         ? "Coverage is strong for the configured passive scan mode. Remaining risk is mostly around authenticated flows, business logic and active exploit classes that Phase 1 does not attempt."
@@ -556,6 +574,7 @@ function buildInsight(scan: Scan) {
       ["Hidden candidates", hiddenRoutes],
       ["Technologies inferred", scan.technologies.length],
       ["Manual-review tasks", manualReview],
+      ["Evasion signals", evasionSignals.length],
       [
         "Adversarial stages",
         `${differentialStages.filter((stage) => stage.status === "COMPLETED").length}/${differentialStages.length}`,

@@ -464,6 +464,10 @@ function buildSections(
             value: String(metrics.manualReviewTasks),
           },
           {
+            label: "Evasion signals",
+            value: String(metrics.evasionSignals),
+          },
+          {
             label: "Routes tested",
             value: `${metrics.testedRoutes}/${metrics.totalRoutes}`,
           },
@@ -557,7 +561,32 @@ function buildSections(
           [130, 76, 68, 68, 64, 112],
         );
         pdf.paragraph(
-          "Methodology includes URL validation, DNS resolution, attack-surface discovery, bounded crawling, hidden route checks, TLS/header/cookie/CORS/CSP review, adaptive probes, correlation, scoring and report generation. Authenticated role comparison, active exploitation and stateful business-flow testing remain dependent on available credentials and configured scan mode.",
+          "Methodology includes URL validation, DNS resolution, attack-surface discovery, bounded crawling, evasion-signal detection, hidden route checks, TLS/header/cookie/CORS/CSP review, adaptive probes, correlation, scoring and report generation. Authenticated role comparison, active exploitation and stateful business-flow testing remain dependent on available credentials and configured scan mode.",
+        );
+      },
+    },
+    {
+      title: "Evasion and coverage controls",
+      render: (pdf) => {
+        const rows = evasionRows(scan);
+        pdf.table(
+          ["Signal", "Severity", "Confidence", "Affected location", "Action"],
+          rows.length
+            ? rows
+            : [
+                [
+                  "No evasion signals recorded",
+                  "-",
+                  "-",
+                  "-",
+                  "Maintain approved scanner coverage.",
+                ],
+              ],
+          [124, 58, 70, 152, 114],
+          { small: true },
+        );
+        pdf.paragraph(
+          "Evasion signals are not automatically vulnerabilities. They identify bot-management, crawl-suppression, challenge, throttling or client-profile differences that can make automated testing see less of the application than a normal approved browser session.",
         );
       },
     },
@@ -802,6 +831,22 @@ function executiveNarrative(scan: ReportScanData) {
         ? "moderate"
         : "lower";
   return `The website presents a ${risk} overall security risk based on the persisted scan results. ${metrics.totalFindings} finding${metrics.totalFindings === 1 ? "" : "s"} were recorded, with ${metrics.highestSeverity.toLowerCase()} as the highest severity. Testing covered ${metrics.coverageScore}% of the reachable attack surface, including ${metrics.testedRoutes} route${metrics.testedRoutes === 1 ? "" : "s"} and ${metrics.testedParameters} tested parameter${metrics.testedParameters === 1 ? "" : "s"}. ${metrics.manualReviewTasks ? `${metrics.manualReviewTasks} manual-review task${metrics.manualReviewTasks === 1 ? "" : "s"} should be completed before final risk acceptance.` : "No manual-review tasks were recorded by the scanner."}`;
+}
+
+function evasionRows(scan: ReportScanData) {
+  return sortFindings(
+    scan.findings.filter(
+      (finding) =>
+        finding.category === "Evasion signal" ||
+        finding.scannerRuleId?.startsWith("evasion/"),
+    ),
+  ).map((finding) => [
+    finding.title,
+    finding.severity,
+    finding.confidence,
+    finding.affectedUrl ?? "Not captured",
+    finding.remediation,
+  ]);
 }
 
 function rootCauseRows(scan: ReportScanData) {

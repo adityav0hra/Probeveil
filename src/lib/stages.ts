@@ -3,6 +3,7 @@ export const PASSIVE_STAGES = [
   ["dns", "Resolving DNS"],
   ["surface", "Discovering attack surface"],
   ["crawl", "Crawling website"],
+  ["evasion", "Detecting evasion signals"],
   ["exposure-probes", "Checking exposed sensitive files"],
   ["hidden-surface", "Discovering hidden routes"],
   ["tls", "Testing TLS"],

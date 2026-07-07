@@ -97,4 +97,42 @@ describe("report metrics", () => {
       discovered: 0,
     });
   });
+
+  it("counts evasion signals separately from ordinary findings", () => {
+    const metrics = reportMetrics({
+      ...baseScan,
+      findings: [
+        {
+          category: "Evasion signal",
+          confidence: "HIGH",
+          description: "Challenge page",
+          evidence: [],
+          id: "finding_1",
+          impact: "Coverage reduced",
+          remediation: "Approve scanner coverage",
+          reproductionSteps: [],
+          scannerRuleId: "evasion/challenge-page",
+          severity: "LOW",
+          status: "OPEN",
+          title: "Scanner-facing challenge detected",
+        },
+        {
+          category: "Security headers",
+          confidence: "HIGH",
+          description: "Missing header",
+          evidence: [],
+          id: "finding_2",
+          impact: "Browser hardening gap",
+          remediation: "Add header",
+          reproductionSteps: [],
+          severity: "LOW",
+          status: "OPEN",
+          title: "Header missing",
+        },
+      ],
+    });
+
+    expect(metrics.totalFindings).toBe(2);
+    expect(metrics.evasionSignals).toBe(1);
+  });
 });
