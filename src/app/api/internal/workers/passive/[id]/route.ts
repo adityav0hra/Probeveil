@@ -86,6 +86,17 @@ export async function POST(
 
   try {
     await runPassive(job, emit, cancelled);
+    if (await cancelled()) {
+      await db.workerJob.updateMany({
+        where: { scanId: id, status: "RUNNING" },
+        data: {
+          completedAt: new Date(),
+          lastError: "Cancelled by admin",
+          status: "CANCELLED",
+        },
+      });
+      return NextResponse.json({ ok: true, cancelled: true });
+    }
     await db.workerJob.updateMany({
       where: { scanId: id, status: "RUNNING" },
       data: { completedAt: new Date(), lastError: null, status: "COMPLETED" },

@@ -92,6 +92,8 @@ const severityOrder: Record<string, number> = {
 
 export function ScanView({ id, initial }: { id: string; initial: Scan }) {
   const [scan, setScan] = useState(initial);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
   const active = ["QUEUED", "RUNNING"].includes(scan.status);
 
   useEffect(() => {
@@ -134,15 +136,40 @@ export function ScanView({ id, initial }: { id: string; initial: Scan }) {
           <button
             className="button-secondary text-red-300"
             onClick={async () => {
-              await fetch(`/api/scans/${id}/cancel`, { method: "POST" });
-              const response = await fetch(`/api/scans/${id}`);
-              setScan(await response.json());
+              setCancelling(true);
+              setCancelError(null);
+              try {
+                const cancelResponse = await fetch(`/api/scans/${id}/cancel`, {
+                  method: "POST",
+                });
+                if (!cancelResponse.ok)
+                  throw new Error("Cancel request failed.");
+                const response = await fetch(`/api/scans/${id}`, {
+                  cache: "no-store",
+                });
+                if (!response.ok) throw new Error("Could not refresh scan.");
+                setScan(await response.json());
+              } catch (error) {
+                setCancelError(
+                  error instanceof Error
+                    ? error.message
+                    : "Could not cancel scan.",
+                );
+              } finally {
+                setCancelling(false);
+              }
             }}
+            disabled={cancelling}
           >
             <StopCircle size={16} />
-            Cancel scan
+            {cancelling ? "Cancelling..." : "Cancel scan"}
           </button>
         </div>
+        {cancelError && (
+          <div className="mt-6 rounded-lg border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-300">
+            {cancelError}
+          </div>
+        )}
         <div className="mt-8 grid gap-6 xl:grid-cols-[1fr_340px]">
           <section className="panel overflow-hidden">
             <div className="border-b border-line p-5">

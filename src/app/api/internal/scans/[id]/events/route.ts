@@ -145,6 +145,14 @@ export async function POST(
       { status: 400 },
     );
   const event = parsed.data;
+  const scanState = await db.scan.findUnique({
+    where: { id },
+    select: { status: true },
+  });
+  if (!scanState) return new NextResponse("Not found", { status: 404 });
+  if (scanState.status === "CANCELLED")
+    return NextResponse.json({ ok: true, skipped: "cancelled" });
+
   if (event.type === "stage") {
     await db.$transaction([
       db.scan.update({
