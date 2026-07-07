@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 const publicPaths = new Set([
   "/",
   "/contact",
+  "/instructions",
   "/login",
   "/icon.png",
   "/probeveil-icon-red.png",

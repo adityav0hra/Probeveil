@@ -44,12 +44,12 @@ const nav = [
 export async function AppShell({ children }: { children: React.ReactNode }) {
   const session = await auth();
   return (
-    <div className="min-h-screen bg-ink lg:grid lg:grid-cols-[248px_1fr]">
-      <aside className="hidden border-r border-line bg-[#0b0c0f] p-5 lg:flex lg:flex-col">
+    <div className="min-h-screen bg-ink lg:grid lg:grid-cols-[236px_1fr]">
+      <aside className="hidden border-r border-line bg-panel p-5 lg:flex lg:flex-col">
         <Logo />
         <Link
           href="/"
-          className="mt-5 flex items-center gap-2 rounded-md border border-line bg-white/[.02] px-3 py-2 text-xs font-medium text-slate-400 transition hover:border-red-500/40 hover:bg-red-500/[.06] hover:text-white"
+          className="mt-5 flex items-center gap-2 rounded-md border border-line px-3 py-2 text-xs font-medium text-slate-400 transition hover:border-slate-500 hover:text-white"
         >
           <ArrowLeft size={14} />
           Back to home
@@ -59,7 +59,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
             <Link
               key={href}
               href={href}
-              className="flex items-center gap-3 rounded-md px-3 py-2.5 text-sm text-slate-400 transition hover:bg-red-500/[.08] hover:text-white"
+              className="flex items-center gap-3 rounded-md px-3 py-2.5 text-sm text-slate-400 transition hover:bg-white/[.03] hover:text-white"
             >
               <Icon size={16} />
               {label}
@@ -86,7 +86,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
       <main>
-        <header className="flex h-16 items-center justify-between border-b border-line bg-[#0b0c0f] px-5 lg:px-8">
+        <header className="flex h-16 items-center justify-between border-b border-line bg-panel px-5 lg:px-8">
           <div className="lg:hidden">
             <Logo />
           </div>
