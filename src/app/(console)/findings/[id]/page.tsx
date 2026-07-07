@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import type { FindingStatus } from "@prisma/client";
 import { ArrowLeft, Download, RotateCcw } from "lucide-react";
 import Link from "next/link";
 import { db } from "@/lib/db";
@@ -23,37 +24,68 @@ export default async function FindingPage({
     },
   });
   if (!finding) notFound();
+
+  const workflowOptions = [
+    ["OPEN", "Open", "Needs review or remediation work."],
+    ["CONFIRMED", "Confirmed", "Validated and should be fixed or tracked."],
+    [
+      "FALSE_POSITIVE",
+      "False positive",
+      "Evidence does not represent a real issue.",
+    ],
+    [
+      "ACCEPTED_RISK",
+      "Accepted risk",
+      "Known issue accepted with business context.",
+    ],
+    ["FIXED", "Fixed", "Fix has been implemented and awaits validation."],
+    [
+      "RETEST_PASSED",
+      "Retest passed",
+      "Retest evidence confirms the issue is resolved.",
+    ],
+    [
+      "RETEST_FAILED",
+      "Retest failed",
+      "Retest evidence shows the issue remains.",
+    ],
+  ] as const satisfies Array<readonly [FindingStatus, string, string]>;
+
   async function review(formData: FormData) {
     "use server";
     const session = await requireRole(["ADMIN"]);
-    const status = String(formData.get("status"));
+    const status = String(formData.get("status")) as FindingStatus;
     const note = String(formData.get("note") ?? "").trim();
-    const allowed = [
-      "CONFIRMED",
-      "FALSE_POSITIVE",
-      "ACCEPTED_RISK",
-      "FIXED",
-      "OPEN",
-      "RETEST_FAILED",
-      "RETEST_PASSED",
-    ];
+    const allowed = workflowOptions.map(([value]) => value);
     if (!allowed.includes(status)) throw new Error("Invalid review state");
     const before = await db.finding.findUniqueOrThrow({ where: { id } });
+    const noteChanged = (before.adminNotes ?? "") !== note;
+    const statusChanged = before.status !== status;
+    if (!noteChanged && !statusChanged) {
+      revalidatePath(`/findings/${id}`);
+      return;
+    }
     await db.$transaction([
       db.finding.update({
         where: { id },
         data: {
-          status: status as typeof before.status,
-          adminNotes: note || before.adminNotes,
+          status,
+          adminNotes: note || null,
         },
       }),
       db.findingReview.create({
         data: {
           findingId: id,
           userId: session.user.id,
-          action: `MARK_${status}`,
-          previousValue: { status: before.status },
-          newValue: { status, note },
+          action: statusChanged ? `MARK_${status}` : "UPDATE_REVIEW_NOTE",
+          previousValue: {
+            adminNotes: before.adminNotes,
+            status: before.status,
+          },
+          newValue: {
+            adminNotes: note || null,
+            status,
+          },
           explanation: note || undefined,
         },
       }),
@@ -63,7 +95,12 @@ export default async function FindingPage({
           action: "FINDING_REVIEWED",
           resourceType: "Finding",
           resourceId: id,
-          metadata: { status },
+          metadata: {
+            noteChanged,
+            previousStatus: before.status,
+            status,
+            statusChanged,
+          },
         },
       }),
     ]);
@@ -161,37 +198,93 @@ export default async function FindingPage({
           <Section title="Remediation">
             <p>{finding.remediation}</p>
           </Section>
+          <Section title="Reviewer history">
+            {finding.reviews.length ? (
+              <div className="space-y-3">
+                {finding.reviews.map((review) => (
+                  <ReviewHistoryItem key={review.id} review={review} />
+                ))}
+              </div>
+            ) : (
+              <p className="muted">
+                No reviewer decisions have been recorded yet.
+              </p>
+            )}
+          </Section>
         </div>
         <aside className="space-y-5">
           <form action={review} className="panel p-5">
-            <p className="eyebrow">Admin review</p>
+            <p className="eyebrow">False-positive workflow</p>
+            <p className="mt-2 text-sm leading-6 text-slate-500">
+              Set the decision state, leave context for future reviewers, and
+              preserve an immutable review trail.
+            </p>
             <label className="mt-4 block text-sm text-slate-300">
-              Decision
+              Decision status
               <select
                 name="status"
                 defaultValue={finding.status}
                 className="input mt-2"
               >
-                <option value="OPEN">Open</option>
-                <option value="CONFIRMED">Mark confirmed</option>
-                <option value="FALSE_POSITIVE">Mark false positive</option>
-                <option value="ACCEPTED_RISK">Accept risk</option>
-                <option value="FIXED">Mark fixed</option>
-                <option value="RETEST_PASSED">Retest passed</option>
-                <option value="RETEST_FAILED">Retest failed</option>
+                {workflowOptions.map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
               </select>
             </label>
+            <div className="mt-3 space-y-2 rounded-lg border border-line bg-black/20 p-3">
+              {workflowOptions.map(([value, label, description]) => (
+                <div
+                  className="grid grid-cols-[110px_1fr] gap-3 text-xs leading-5"
+                  key={value}
+                >
+                  <span className="font-medium text-slate-300">{label}</span>
+                  <span className="text-slate-500">{description}</span>
+                </div>
+              ))}
+            </div>
             <label className="mt-4 block text-sm text-slate-300">
-              Private admin note
+              Reviewer note
               <textarea
                 name="note"
                 defaultValue={finding.adminNotes ?? ""}
                 rows={5}
                 className="input mt-2 resize-none"
+                placeholder="Why this status was chosen, validation evidence, risk acceptance context, owner, ticket, or retest notes."
               />
             </label>
-            <button className="button mt-4 w-full">Save review</button>
+            <button className="button mt-4 w-full">Save decision</button>
           </form>
+          <div className="panel p-5">
+            <p className="eyebrow">Current decision</p>
+            <div className="mt-4 space-y-4">
+              <div>
+                <StatusPill value={finding.status} />
+              </div>
+              <Item
+                label="Last reviewed"
+                value={
+                  finding.reviews[0]?.createdAt.toLocaleString() ??
+                  "No review yet"
+                }
+              />
+              <Item
+                label="Reviewer"
+                value={
+                  finding.reviews[0]?.user?.name ??
+                  finding.reviews[0]?.user?.email ??
+                  "—"
+                }
+              />
+              <div>
+                <p className="eyebrow">Notes</p>
+                <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-400">
+                  {finding.adminNotes || "No reviewer notes yet."}
+                </p>
+              </div>
+            </div>
+          </div>
           <div className="panel p-5">
             <p className="eyebrow">Detection</p>
             <dl className="mt-4 space-y-4">
@@ -235,6 +328,68 @@ export default async function FindingPage({
     </>
   );
 }
+function ReviewHistoryItem({
+  review,
+}: {
+  review: {
+    action: string;
+    createdAt: Date;
+    explanation: string | null;
+    newValue: unknown;
+    previousValue: unknown;
+    user: { email: string; name: string | null } | null;
+  };
+}) {
+  const previous = reviewValue(review.previousValue);
+  const next = reviewValue(review.newValue);
+  return (
+    <div className="rounded-lg border border-line bg-black/20 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium text-slate-200">
+            {review.action.replaceAll("_", " ")}
+          </p>
+          <p className="mt-1 text-xs text-slate-600">
+            {review.user?.name ?? review.user?.email ?? "Unknown reviewer"} ·{" "}
+            {review.createdAt.toLocaleString()}
+          </p>
+        </div>
+        {next.status ? <StatusPill value={next.status} /> : null}
+      </div>
+      <dl className="mt-4 grid gap-3 sm:grid-cols-2">
+        <Item label="Previous status" value={previous.status ?? "—"} />
+        <Item label="New status" value={next.status ?? "—"} />
+      </dl>
+      {review.explanation || next.adminNotes ? (
+        <div className="mt-4 rounded-md border border-line bg-white/[.02] p-3">
+          <p className="eyebrow">Reviewer note</p>
+          <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-400">
+            {review.explanation ?? next.adminNotes}
+          </p>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function reviewValue(value: unknown) {
+  if (!value || typeof value !== "object") return {};
+  const row = value as {
+    adminNotes?: unknown;
+    note?: unknown;
+    status?: unknown;
+  };
+  return {
+    adminNotes:
+      typeof row.adminNotes === "string"
+        ? row.adminNotes
+        : typeof row.note === "string"
+          ? row.note
+          : undefined,
+    status: typeof row.status === "string" ? row.status : undefined,
+  };
+}
+
 function Section({
   title,
   children,
