@@ -112,6 +112,24 @@ enum ContactEmailStatus {
   FAILED
 }
 
+enum ScheduleCadence {
+  WEEKLY
+  MONTHLY
+}
+
+enum NotificationType {
+  SCAN_SUMMARY
+  FAILED_SCAN
+  HIGH_SEVERITY_ALERT
+  NEW_FINDING_DIFF
+}
+
+enum NotificationDeliveryStatus {
+  NOT_CONFIGURED
+  SENT
+  FAILED
+}
+
 model User {
   id                       String           @id @default(cuid())
   name                     String?
@@ -124,6 +142,7 @@ model User {
   accounts                 Account[]
   sessions                 Session[]
   scans                    Scan[]
+  scanSchedules            ScanSchedule[]
   reviews                  FindingReview[]
   auditLogs                AuditLog[]
   assignedContactEnquiries ContactEnquiry[] @relation("AssignedContactEnquiries")
@@ -172,6 +191,8 @@ model Scan {
   id             String             @id @default(cuid())
   userId         String
   user           User               @relation(fields: [userId], references: [id])
+  scheduleId     String?
+  schedule       ScanSchedule?      @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
   originalUrl    String             @db.Text
   normalizedUrl  String             @db.Text
   finalUrl       String?            @db.Text
@@ -194,12 +215,44 @@ model Scan {
   retests        Retest[]
   reports        Report[]
   artifacts      EvidenceArtifact[]
+  notifications  ScanNotification[]
   jobs           WorkerJob[]
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
 
   @@index([status, createdAt])
   @@index([normalizedHash, status])
+  @@index([scheduleId, createdAt])
+  @@index([userId])
+}
+
+model ScanSchedule {
+  id                 String             @id @default(cuid())
+  userId             String
+  user               User               @relation(fields: [userId], references: [id])
+  name               String
+  originalUrl        String             @db.Text
+  normalizedUrl      String             @db.Text
+  normalizedHash     String
+  mode               ScanMode
+  cadence            ScheduleCadence
+  enabled            Boolean            @default(true)
+  features           Json?
+  notificationEmail  String?
+  summaryEmails      Boolean            @default(true)
+  failedScanAlerts   Boolean            @default(true)
+  highSeverityAlerts Boolean            @default(true)
+  newFindingDiffs    Boolean            @default(true)
+  nextRunAt          DateTime
+  lastRunAt          DateTime?
+  lastScanId         String?
+  scans              Scan[]
+  notifications      ScanNotification[]
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  @@index([enabled, nextRunAt])
+  @@index([normalizedHash])
   @@index([userId])
 }
 
@@ -467,6 +520,27 @@ model EvidenceArtifact {
   expiresAt   DateTime?
 
   @@index([scanId, type])
+}
+
+model ScanNotification {
+  id         String                     @id @default(cuid())
+  scanId     String?
+  scan       Scan?                      @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  scheduleId String?
+  schedule   ScanSchedule?              @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  type       NotificationType
+  status     NotificationDeliveryStatus @default(NOT_CONFIGURED)
+  toEmail    String?
+  subject    String
+  body       String                     @db.Text
+  metadata   Json?
+  sentAt     DateTime?
+  error      String?                    @db.Text
+  createdAt  DateTime                   @default(now())
+
+  @@index([scanId, type])
+  @@index([scheduleId, createdAt])
+  @@index([status, createdAt])
 }
 
 model UploadedArtifact {

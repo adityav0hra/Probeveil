@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { processScanNotifications } from "@/lib/notifications/scan-notifications";
 import { calculateCoverageScore, calculateSecurityScore } from "@/lib/scoring";
 import { verifyWorkerToken } from "@/lib/worker-token";
 
@@ -327,6 +328,7 @@ export async function POST(
       },
     });
     await markTargetedRetestScanFailed(id, event.error ?? "Worker failed");
+    await safelyProcessScanNotifications(id);
   } else {
     const [findings, stages, endpointCount, tested] = await Promise.all([
       db.finding.findMany({
@@ -368,8 +370,20 @@ export async function POST(
       },
     });
     await evaluateTargetedRetest(id);
+    await safelyProcessScanNotifications(id);
   }
   return NextResponse.json({ ok: true });
+}
+
+async function safelyProcessScanNotifications(scanId: string) {
+  try {
+    await processScanNotifications(scanId);
+  } catch (error) {
+    console.error("Scan notification processing failed", {
+      error: error instanceof Error ? error.message : String(error),
+      scanId,
+    });
+  }
 }
 
 async function markTargetedRetestScanFailed(scanId: string, error: string) {
