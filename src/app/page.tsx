@@ -15,10 +15,10 @@ export default async function HomePage() {
   const adminLabel = session ? "Open admin console" : "Admin login";
 
   return (
-    <main className="flex h-screen overflow-hidden">
+    <main className="flex h-[100svh] overflow-hidden">
       <div className="flex min-h-0 w-full flex-col">
         <header className="shrink-0 border-b border-line">
-          <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-5 lg:px-8">
+          <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 lg:px-8">
             <Link href="/" className="flex items-center gap-3">
               <Image
                 alt="Probeveil"
@@ -52,17 +52,17 @@ export default async function HomePage() {
           </div>
         </header>
 
-        <section className="mx-auto grid min-h-0 w-full max-w-7xl flex-1 items-center gap-8 px-5 py-8 lg:grid-cols-[1fr_420px] lg:px-8">
-          <div className="max-w-3xl">
+        <section className="mx-auto grid min-h-0 w-full max-w-7xl flex-1 items-center gap-6 px-5 py-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:px-8">
+          <div className="max-w-4xl">
             <p className="eyebrow">Website security operations</p>
-            <h1 className="mt-5 max-w-3xl text-4xl font-semibold leading-tight tracking-tight text-white sm:text-5xl">
-              Probeveil
+            <h1 className="mt-4 max-w-4xl text-5xl font-semibold leading-[1.02] tracking-tight text-white sm:text-6xl lg:text-7xl">
+              Probeveil security operations
             </h1>
             <p className="mt-5 max-w-2xl text-base leading-7 text-slate-300">
               A clean control console for approved website scanning, evidence
               review, issue tracking, scheduling and report delivery.
             </p>
-            <div className="mt-8 flex flex-wrap gap-3">
+            <div className="mt-7 flex flex-wrap gap-3">
               <Link className="button px-6 py-3 text-base" href="/contact">
                 Contact Probeveil
                 <Mail size={17} />
@@ -74,7 +74,7 @@ export default async function HomePage() {
             </div>
           </div>
 
-          <aside className="panel hidden p-5 sm:block">
+          <aside className="panel hidden p-5 lg:block">
             <p className="eyebrow">Operating model</p>
             <div className="mt-5 divide-y divide-line">
               {signals.map(([label, detail]) => (
